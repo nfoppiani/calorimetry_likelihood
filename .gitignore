@@ -1,11 +1,11 @@
 # Folders that are not relevant
-/check_sce/*
-/fiducial_volume_studies/*
-/numi_flash/*
-/selection/*
-/ShowerTrackFit/*
-/statistics/*
-/vertex_fitter/*
+check_sce/*
+fiducial_volume_studies/*
+numi_flash/*
+selection/*
+ShowerTrackFit/*
+statistics/*
+vertex_fitter/*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
