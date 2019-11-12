@@ -57,13 +57,13 @@ class plotter():
             element_mask = (partial_prediction == array[additional_selection_mask][variable])
             datasets_prediction = array[additional_selection_mask][element_mask][variable].flatten()
 
-            extended_weights = (array['weight'] * (array[variable] == array[variable]))
-            print(array['weight'], len(array['weight']), type(array['weight']))
-            print(extended_weights, len(extended_weights), type(extended_weights))
-            print(additional_selection_mask, len(additional_selection_mask), type(additional_selection_mask))
-
-            print(additional_selection_mask.sum())
-            print(element_mask, len(element_mask))
+            extended_weights = np.array(array['weight'] * (array[variable] == array[variable]))
+            # print(array['weight'], len(array['weight']), type(array['weight']))
+            # print(extended_weights, len(extended_weights), type(extended_weights))
+            # print(additional_selection_mask, len(additional_selection_mask), type(additional_selection_mask))
+            #
+            # print(additional_selection_mask.sum())
+            # print(element_mask, len(element_mask))
             weights_prediction = extended_weights[additional_selection_mask][element_mask].flatten()
 
             datasets_predictions.append(datasets_prediction)
@@ -114,11 +114,11 @@ class plotter():
                     partial_prediction = getattr(array[additional_selection_mask][variable], function)()
 
                 element_mask = (partial_prediction == array[additional_selection_mask][variable])
-                extended_category_mask = array[category_branch_name] * (array[variable] == array[variable])
+                extended_category_mask = np.array(array[category_branch_name] * (array[variable] == array[variable]))
                 category_mask = extended_category_mask[additional_selection_mask]
                 full_mask = (category_mask & element_mask)
-                prediction = array[additional_selection_mask][variable][full_mask].flatten()
-                extended_weights = (array['weight'] * (array[variable] == array[variable]))
+                prediction = array[additional_selection_mask][full_mask][variable].flatten()
+                extended_weights = np.array(array['weight'] * (array[variable] == array[variable]))
                 weights = extended_weights[additional_selection_mask][full_mask].flatten()
 
                 datasets_prediction.append(prediction)

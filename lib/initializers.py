@@ -14,8 +14,10 @@ def initialisation_for_caloriemtry_acpt(array):
 def initialisation_for_caloriemtry_data_mc(array):
     overlay_purity(array)
     add_pdg_categories(array)
-    point_is_fiducial(array, name_in='trk_sce_start', name_out='start_is_fiducial')
-    point_is_fiducial(array, name_in='trk_sce_end', name_out='end_is_fiducial')
+    point_is_fiducial(array, name_in='trk_sce_start', name_out='start_is_fiducial',
+                            fiducial_x=[-20, 20], fiducial_y=[-20, 20], fiducial_z=[20, -50])
+    point_is_fiducial(array, name_in='trk_sce_end', name_out='end_is_fiducial',
+                            fiducial_x=[-20, 20], fiducial_y=[-20, 20], fiducial_z=[20, -50])
 
 def initialisation_for_calorimetry_shower(array):
     overlay_purity(array)
