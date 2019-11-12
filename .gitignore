@@ -6,6 +6,7 @@ selection/*
 ShowerTrackFit/*
 statistics/*
 vertex_fitter/*
+calorimetry_likelihood/old/*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
