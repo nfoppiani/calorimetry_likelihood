@@ -49,21 +49,24 @@ class plotter():
             additional_selection_mask = additional_selection_masks[dataset_name]
 
             if function == 'flatten':
+                # print("array[variable]")
+                # print("type = ", type(array[variable]))
+                # print("len = ", len(array[variable]))
+                # print("array = ", array[variable])
+                # print()
+                # print("additional_selection_mask")
+                # print("type = ", type(additional_selection_mask))
+                # print("len = ", len(additional_selection_mask))
+                # print("array = ", additional_selection_mask)
+
                 partial_prediction = array[additional_selection_mask][variable]
             else:
                 partial_prediction = getattr(array[additional_selection_mask][variable], function)()
 
-
-            element_mask = (partial_prediction == array[additional_selection_mask][variable])
-            datasets_prediction = array[additional_selection_mask][element_mask][variable].flatten()
+            element_mask = (partial_prediction[additional_selection_mask] == array)
+            datasets_prediction = array[additional_selection_mask][variable][element_mask].flatten()
 
             extended_weights = np.array(array['weight'] * (array[variable] == array[variable]))
-            # print(array['weight'], len(array['weight']), type(array['weight']))
-            # print(extended_weights, len(extended_weights), type(extended_weights))
-            # print(additional_selection_mask, len(additional_selection_mask), type(additional_selection_mask))
-            #
-            # print(additional_selection_mask.sum())
-            # print(element_mask, len(element_mask))
             weights_prediction = extended_weights[additional_selection_mask][element_mask].flatten()
 
             datasets_predictions.append(datasets_prediction)

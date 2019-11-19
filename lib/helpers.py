@@ -89,13 +89,13 @@ def distance3d(array, point1, point2, name_out, trailing_part1='', trailing_part
                     (point1_y - point2_y)**2 +
                     (point1_z - point2_z)**2 )
 
-def point_is_fiducial(array, name_in, name_out, trailing_part='', fiducial_x=[10, -10], fiducial_y=[15, -15], fiducial_z=[10, -50]):
+def point_is_fiducial(array, name_in, name_out, trailing_part='', fiducial_x=[10, 10], fiducial_y=[15, 15], fiducial_z=[10, 50]):
     point_x = array[name_in + '_x' + trailing_part]
     point_y = array[name_in + '_y' + trailing_part]
     point_z = array[name_in + '_z' + trailing_part]
-    is_x = (detector_x[0] + fiducial_x[0] < point_x) & (point_x < detector_x[1] + fiducial_x[1])
-    is_y = (detector_y[0] + fiducial_y[0] < point_y) & (point_y < detector_y[1] + fiducial_y[1])
-    is_z = (detector_z[0] + fiducial_z[0] < point_z) & (point_z < detector_z[1] + fiducial_z[1])
+    is_x = ((detector_x[0] + fiducial_x[0]) < point_x) & (point_x < (detector_x[1] - fiducial_x[1]))
+    is_y = ((detector_y[0] + fiducial_y[0]) < point_y) & (point_y < (detector_y[1] - fiducial_y[1]))
+    is_z = ((detector_z[0] + fiducial_z[0]) < point_z) & (point_z < (detector_z[1] - fiducial_z[1]))
     array[name_out] = (is_x & is_y & is_z)
 
 def trk_start_resolution(array):
@@ -131,3 +131,6 @@ def longest_track(array):
 
 def range_from_rr(array, name_in, name_out):
     array[name_out] = array[name_in].max() - array[name_in]
+
+def fast_scintillation_final_state(array):
+    array['end_scintillation'] = (array['backtracked_end_process'].regular() == b'FastScintillation')
