@@ -18,7 +18,7 @@ def initialisation_for_caloriemtry_data_mc(array):
                             fiducial_x=[20, 20], fiducial_y=[20, 20], fiducial_z=[20, 20])
     point_is_fiducial(array, name_in='trk_sce_end', name_out='end_is_fiducial',
                             fiducial_x=[20, 20], fiducial_y=[20, 20], fiducial_z=[20, 20])
-    fast_scintillation_final_state(array)
+    non_inelastic_final_state(array)
 
 def initialisation_for_calorimetry_shower(array):
     overlay_purity(array)

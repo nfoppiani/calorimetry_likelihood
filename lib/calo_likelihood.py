@@ -8,17 +8,21 @@ from math import pi
 import awkward
 
 class caloLikelihood(object):
-    def __init__(self, array, quality_mask=None):
+    def __init__(self, array, quality_mask=None, quality_masks_planes=None):
         self.array = array
         if quality_mask is None:
             self.quality_mask = (array == array)
         else:
             self.quality_mask = quality_mask
 
+        if quality_masks_planes is None:
+            self.quality_masks_planes = [array == array]*3
+        else:
+            self.quality_masks_planes = quality_masks_planes
+
         self.parameters = {}
         self.parameters_legend_names = {}
         self.parameters_bin_edges = {}
-        # self.parameters_edges_binbybin = {}
         self.parameters_bin_centers = {}
         self.parameters_num_bins = {}
 
@@ -34,20 +38,25 @@ class caloLikelihood(object):
         self.data_masks = {}
         self.lookup_tables_data = {}
 
-    def load_data(self, array_data, data_masks=None, overall_mask=None):
+    def load_data(self, array_data, data_masks=None, overall_data_mask=None, overall_data_masks_plane=None):
         self.array_data = array_data
 
-        if overall_mask is None:
-            self.overall_mask = (array_data == array_data)
+        if overall_data_mask is None:
+            self.overall_data_mask = (array_data == array_data)
         else:
-            self.overall_mask = overall_mask
+            self.overall_data_mask = overall_data_mask
+
+        if overall_data_masks_plane is None:
+            self.overall_data_masks_plane = (array_data == array_data)
+        else:
+            self.overall_data_masks_plane = overall_data_masks_plane
 
         self.data_masks = {}
         if data_masks is None:
-            self.data_masks['default'] = overall_mask
+            self.data_masks['default'] = overall_data_mask
         else:
             for name, data_mask in data_masks.items():
-                self.data_masks[name] = (data_mask & overall_mask)
+                self.data_masks[name] = (data_mask & overall_data_mask)
 
     def setPdgCodeVar(self, pdgcode_var):
         self.pdgcode_var = pdgcode_var
@@ -72,13 +81,8 @@ class caloLikelihood(object):
         self.parameters_num_bins[plane_num] = [
             (len(bin_edges) - 1) for bin_edges in parameters_bin_edges
         ]
-        # self.parameters_edges_binbybin[plane_num] = []
         self.parameters_bin_centers[plane_num] = []
         for parameter_bin_edges in self.parameters_bin_edges[plane_num]:
-            # aux_edges = [[x1, x2] for x1, x2 in zip(parameter_bin_edges[:-1],
-            #                                         parameter_bin_edges[1:])]
-            # self.parameters_edges_binbybin[plane_num].append(aux_edges)
-
             aux_centers = (parameter_bin_edges[:-1] +
                            parameter_bin_edges[1:]) / 2
             self.parameters_bin_centers[plane_num].append(aux_centers)
@@ -92,35 +96,6 @@ class caloLikelihood(object):
         self.dedx_bins_centers[plane_num] = (
             self.dedx_bin_edges[plane_num][1:] +
             self.dedx_bin_edges[plane_num][:-1]) / 2
-    #
-    # def buildLookUpTableNonVectorised(self, array, mask, plane_num, cali=False):
-    #     """Deprecated"""
-    #     if cali:
-    #         assert hasattr(self, 'calibration_table')
-    #         assert plane_num in self.calibration_table.keys()
-    #
-    #     out_dedxs = []
-    #     bin_combinations = product(*self.parameters_edges_binbybin[plane_num])
-    #     for bin_combination in bin_combinations:
-    #         out_mask = mask
-    #         for variable, bins in zip(self.parameters[plane_num],
-    #                                   bin_combination):
-    #             aux_mask = (array[variable] >= bins[0]) & (array[variable] <
-    #                                                        bins[1])
-    #             out_mask = (out_mask & aux_mask)
-    #         out_dedx = array[self.dedx_var[plane_num]][out_mask].flatten()
-    #
-    #         if cali:
-    #             parameters_value = [(bins[0] + bins[1]) / 2
-    #                                 for bins in bin_combination]
-    #             out_dedx = self.applyCalibration(
-    #                 plane_num, out_dedx, parameters_value)
-    #
-    #         hist, bin_edges = np.histogram(out_dedx,
-    #                                        bins=self.dedx_bin_edges[plane_num],
-    #                                        density=True)
-    #         out_dedxs.append(hist)
-    #     return np.concatenate(out_dedxs)
 
     def buildLookUpTable(self, array, mask, plane_num, cali=False):
         if cali:
@@ -150,7 +125,6 @@ class caloLikelihood(object):
                                                  bins=bin_edges_partial,
                                                  density=True)
 
-        # table = hist_total/hist_partial[..., np.newaxis]
         table = np.where(hist_partial[..., np.newaxis] != 0,
                          hist_total/hist_partial[..., np.newaxis],
                          0)
@@ -172,7 +146,7 @@ class caloLikelihood(object):
 
         array = self.array
         pdg_mask = (np.abs(array[self.pdgcode_var]) == pdg_code)
-        mask = (self.quality_mask & pdg_mask)
+        mask = (self.quality_mask & self.quality_masks_planes[plane_num] & pdg_mask)
 
         self.lookup_tables[pdg_code][plane_num] = self.buildLookUpTable(
             array, mask, plane_num, cali)
@@ -184,7 +158,7 @@ class caloLikelihood(object):
         if data_selection not in self.lookup_tables_data.keys():
             self.lookup_tables_data[data_selection] = {}
 
-        mask = (self.data_masks[data_selection])
+        mask = (self.data_masks[data_selection] & self.overall_data_masks_plane[plane_num])
         self.lookup_tables_data[data_selection][
             plane_num] = self.buildLookUpTable(self.array_data, mask,
                                                plane_num, cali)
@@ -516,11 +490,11 @@ class caloLikelihood(object):
         pdg_mask = (np.abs(mc_array[self.pdgcode_var]) == pdg_code)
         mc_mask = self.createMaskFromParameterValue('mc', plane_num,
                                                     parameters_value)
-        mc_mask = (mc_mask & self.quality_mask & pdg_mask)
+        mc_mask = (mc_mask & self.quality_mask & self.quality_masks_planes[plane_num] & pdg_mask)
 
         data_mask = self.createMaskFromParameterValue('data', plane_num,
                                                       parameters_value)
-        data_mask = (data_mask & self.data_masks[data_selection])
+        data_mask = (data_mask & self.data_masks[data_selection] & self.overall_data_masks_plane[plane_num])
 
         dedx_mc = self.array[self.dedx_var[plane_num]][mc_mask].flatten()
         if len(dedx_mc) == 0:
@@ -766,11 +740,10 @@ class caloLikelihood(object):
                 out_file.write('{:.3f}, '.format(elem))
         out_file.write('\n};\n\n')
 
-    def printCplusplusCode(self, filename, planes=[0, 1, 2]):
+    def printCplusplusCode(self, filename, lookup_name='PROTON_MUON', planes=[0, 1, 2]):
         assert hasattr(self, 'lookup_table_llr')
         out_file = open(filename, 'a')
-        out_file.write('#include <stdlib.h>')
-
+        out_file.write('#ifndef {}_LOOKUP_H\n#define {}_LOOKUP_H\n#include <stdlib.h>'.format(lookup_name, lookup_name))
         for plane in planes:
             out_file.write('\nsize_t dedx_num_bins_pl_{} = {};'.format(plane, self.dedx_num_bins[plane]))
             self.printArray(self.dedx_bin_edges[plane], out_file, title='dedx_edges_pl_{}'.format(plane))
@@ -778,5 +751,5 @@ class caloLikelihood(object):
                 out_file.write('\nsize_t parameter_{}_num_bins_pl_{} = {};'.format(i, plane, self.parameters_num_bins[plane][i]))
                 self.printArray(array, out_file, title='parameter_{}_edges_pl_{}'.format(i, plane))
             self.printArray(self.lookup_table_llr[plane], out_file, title='dedx_pdf_pl_{}'.format(plane))
-
+        out_file.write('\n\n#endif')
         out_file.close()

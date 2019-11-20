@@ -134,3 +134,6 @@ def range_from_rr(array, name_in, name_out):
 
 def fast_scintillation_final_state(array):
     array['end_scintillation'] = (array['backtracked_end_process'].regular() == b'FastScintillation')
+
+def non_inelastic_final_state(array):
+    array['non_inelastic'] = (array['backtracked_end_process'].regular() != b'ProtonInelastic')

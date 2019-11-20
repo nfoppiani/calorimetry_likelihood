@@ -1,7 +1,14 @@
+import gc
+
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from matplotlib.colors import LogNorm
+
+import awkward
+
+def chunked2jagged(array):
+    return awkward.concatenate(array.chunks)
 
 class plotter():
 
@@ -46,51 +53,58 @@ class plotter():
             label_prediction = 'DATA Beam OFF'
             labels_predictions.append(label_prediction)
 
-            additional_selection_mask = additional_selection_masks[dataset_name]
+            additional_selection_mask = chunked2jagged(additional_selection_masks[dataset_name])
+            array_variable = chunked2jagged(array[variable])
 
             if function == 'flatten':
-                # print("array[variable]")
-                # print("type = ", type(array[variable]))
-                # print("len = ", len(array[variable]))
-                # print("array = ", array[variable])
-                # print()
-                # print("additional_selection_mask")
-                # print("type = ", type(additional_selection_mask))
-                # print("len = ", len(additional_selection_mask))
-                # print("array = ", additional_selection_mask)
-
-                partial_prediction = array[additional_selection_mask][variable]
+                partial_prediction = array_variable[additional_selection_mask]
             else:
-                partial_prediction = getattr(array[additional_selection_mask][variable], function)()
+                partial_prediction = getattr(array_variable[additional_selection_mask], function)()
 
-            element_mask = (partial_prediction[additional_selection_mask] == array)
-            datasets_prediction = array[additional_selection_mask][variable][element_mask].flatten()
+            element_mask = (partial_prediction == array_variable[additional_selection_mask])
+            datasets_prediction = array_variable[additional_selection_mask][element_mask].flatten()
 
-            extended_weights = np.array(array['weight'] * (array[variable] == array[variable]))
+            extended_weights = (array['weight'] * (array_variable == array_variable))
             weights_prediction = extended_weights[additional_selection_mask][element_mask].flatten()
 
             datasets_predictions.append(datasets_prediction)
             weights_predictions.append(weights_prediction)
+
+            del additional_selection_mask, array_variable, partial_prediction, element_mask, extended_weights
+            gc.collect()
+
             # do beam ON
-            name = 'beam_on'
+            dataset_name = 'beam_on'
             label_data = 'DATA Beam ON'
-            array = self.arrays[name]
-            datasets_data = getattr(array[additional_selection_masks[name]][variable], function)()
+            array = self.arrays[dataset_name]
+            array_variable = chunked2jagged(array[variable])
+            additional_selection_mask = chunked2jagged(additional_selection_masks[dataset_name])
+            datasets_data = getattr(array_variable[additional_selection_mask], function)()
             beam_on_values, bin_edges = np.histogram(datasets_data,
                                              bins=binning[0],
                                              range=(binning[1], binning[2])
                                            )
             beam_on_y_err = np.sqrt(beam_on_values)
+            del additional_selection_mask, array_variable, datasets_data
+            gc.collect()
         else:
-            array = self.arrays['beam_on']
-            beam_on_data = getattr(array[additional_selection_masks['beam_on']][variable], function)()
+            dataset_name = 'beam_on'
+            array = self.arrays[dataset_name]
+            array_variable = chunked2jagged(array[variable])
+            additional_selection_mask = chunked2jagged(additional_selection_masks[dataset_name])
+            beam_on_data = getattr(array_variable[additional_selection_mask], function)()
             beam_on_aux, bin_edges = np.histogram(beam_on_data,
                                              bins=binning[0],
                                              range=(binning[1], binning[2])
                                            )
-            array = self.arrays['beam_off']
-            beam_off_data = getattr(array[additional_selection_masks['beam_off']][variable], function)()
-            self.scale_factors['beam_off']
+            del additional_selection_mask, array_variable, beam_on_data
+            gc.collect()
+
+            dataset_name = 'beam_on'
+            array = self.arrays[dataset_name]
+            array_variable = chunked2jagged(array[variable])
+            additional_selection_mask = chunked2jagged(additional_selection_masks[dataset_name])
+            beam_off_data = getattr(array_variable[additional_selection_mask], function)()
             beam_off_aux, bin_edges = np.histogram(beam_off_data,
                                              bins=binning[0],
                                              range=(binning[1], binning[2]),
@@ -99,36 +113,51 @@ class plotter():
             label_data = 'DATA Beam ON - Beam OFF'
             beam_on_values = beam_on_aux - beam_off_aux * self.scale_factors['beam_off']
             beam_on_y_err = np.sqrt(beam_on_aux + beam_off_aux * self.scale_factors['beam_off']**2)
+            del additional_selection_mask, array_variable, beam_off_data
+            gc.collect()
 
-        for i, (category_branch_name, category_label) in enumerate(categories.items()):
+        aux_datasets_predictions = {}
+        aux_weights_predictions = {}
+
+        for dataset_name in prediction_datasets:
+            array = self.arrays[dataset_name]
+            array_variable = chunked2jagged(array[variable])
+            additional_selection_mask = chunked2jagged(additional_selection_masks[dataset_name])
+
+            if function == 'flatten':
+                partial_prediction = array_variable[additional_selection_mask]
+            else:
+                partial_prediction = getattr(array_variable[additional_selection_mask], function)()
+
+            element_mask = (partial_prediction == array_variable[additional_selection_mask])
+
+            for (category_branch_name, category_label) in categories.items():
+                extended_category_mask = chunked2jagged(array[category_branch_name] * (array_variable == array_variable))
+                category_mask = extended_category_mask[additional_selection_mask]
+                full_mask = (category_mask & element_mask)
+                prediction = array_variable[additional_selection_mask][full_mask].flatten()
+                extended_weights = (array['weight'] * (array_variable == array_variable))
+                weights = extended_weights[additional_selection_mask][full_mask].flatten()
+
+                if category_label not in aux_datasets_predictions.keys():
+                    aux_datasets_predictions[category_label] = [prediction]
+                    aux_weights_predictions[category_label] = [weights]
+                else:
+                    aux_datasets_predictions[category_label].append(prediction)
+                    aux_weights_predictions[category_label].append(weights)
+
+                del extended_category_mask, category_mask, full_mask, extended_weights
+                gc.collect()
+
+            del array_variable, additional_selection_mask, partial_prediction, element_mask
+            gc.collect()
+
+        for i, category_label in enumerate(categories.values()):
             labels_predictions.append(category_label)
             colors.append('C{}'.format(i+1))
 
-            datasets_prediction = []
-            weights_prediction = []
-
-            for dataset_name in prediction_datasets:
-                array = self.arrays[dataset_name]
-                additional_selection_mask = additional_selection_masks[dataset_name]
-
-                if function == 'flatten':
-                    partial_prediction = array[additional_selection_mask][variable]
-                else:
-                    partial_prediction = getattr(array[additional_selection_mask][variable], function)()
-
-                element_mask = (partial_prediction == array[additional_selection_mask][variable])
-                extended_category_mask = np.array(array[category_branch_name] * (array[variable] == array[variable]))
-                category_mask = extended_category_mask[additional_selection_mask]
-                full_mask = (category_mask & element_mask)
-                prediction = array[additional_selection_mask][full_mask][variable].flatten()
-                extended_weights = np.array(array['weight'] * (array[variable] == array[variable]))
-                weights = extended_weights[additional_selection_mask][full_mask].flatten()
-
-                datasets_prediction.append(prediction)
-                weights_prediction.append(weights)
-
-            datasets_predictions.append(np.concatenate(datasets_prediction))
-            weights_predictions.append(np.concatenate(weights_prediction))
+            datasets_predictions.append(np.concatenate(aux_datasets_predictions[category_label]))
+            weights_predictions.append(np.concatenate(aux_weights_predictions[category_label]))
 
         # for name, dataset, weight in zip(labels_predictions, datasets_predictions, weights_predictions):
         #     print(name, len(dataset), len(weight))
@@ -253,15 +282,15 @@ class plotter():
             labels_predictions.append(category_label)
 
             if function == 'flatten':
-                partial_prediction = array[additional_selection_mask][variable]
+                partial_prediction = array[variable][additional_selection_mask]
             else:
-                partial_prediction = getattr(array[additional_selection_mask][variable], function)()
+                partial_prediction = getattr(array[variable][additional_selection_mask], function)()
 
-            element_mask = (partial_prediction == array[additional_selection_mask][variable])
+            element_mask = (partial_prediction == array[variable][additional_selection_mask])
             extended_category_mask = array[category_branch_name] * (array[variable] == array[variable])
             category_mask = extended_category_mask[additional_selection_mask]
             full_mask = (category_mask & element_mask)
-            prediction = array[additional_selection_mask][variable][full_mask].flatten()
+            prediction = array[variable][additional_selection_mask][full_mask].flatten()
             extended_weights = (array['weight'] * (array[variable] == array[variable]))
             weights = extended_weights[additional_selection_mask][full_mask].flatten()
 

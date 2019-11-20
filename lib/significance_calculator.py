@@ -25,20 +25,19 @@ class significanceCalculator(object):
     def neymanPearsonLikelihoodRatio(self, mu_0, mu_1, obs_bin_contents):
         return -2*(self.poissonLogLikelihood(mu_0, obs_bin_contents) - self.poissonLogLikelihood(mu_1, obs_bin_contents))
 
-    def pseudoExperiments(self, n_toy, mu, systematic_uncertainties={}, scaling_factor=1):
-        out_toy = np.zeros((n_toy, self.n_bin))
-        mean_toy = {}
+    def pseudoExperiments(self, n_toy, systematic_uncertainties={}, scale_factor=1):
+        bg_toy = np.zeros((n_toy, self.n_bin))
         for name, prediction in self.expected_bin_contents.items():
             if name not in systematic_uncertainties.keys():
                 systematic_uncertainties[name] = 0
             mean_toy = np.stack([np.random.normal(m, s, n_toy) for m,s in zip(prediction, prediction*systematic_uncertainties[name])], axis=1)
-            poisson_toy = np.stack([np.random.poisson(scaling_factor*m) for m in mean_toy.clip(min=0)], axis=0)
+            poisson_toy = np.stack([np.random.poisson(scale_factor*m) for m in mean_toy.clip(min=0)], axis=0)
             if name == 'signal':
-                out_toy += poisson_toy * mu
+                signal_toy = poisson_toy
             else:
-                out_toy += poisson_toy
+                bg_toy += poisson_toy
 
-        return out_toy
+        return bg_toy, signal_toy
 
     def pseudoExperimentsFactory(self, n_toy, systematic_uncertainties={}, scale_factors=[1]):
         bg_toy = [np.zeros((n_toy, self.n_bin)) for scale_factor in scale_factors]
@@ -74,16 +73,17 @@ class significanceCalculator(object):
 
         return expected_significance, expected_pvalues, expected_quantiles
 
-    def testStatisticsPlot(self, mu_0, mu_1, n_toy_0=100000, n_toy_1=1000, percentage_values=[16, 50, 84], scaling_factor=1, systematic_uncertainties={}, n_bins=50, log=False):
-        toy_mu0 = self.pseudoExperiments(n_toy_0, mu_0, systematic_uncertainties, scaling_factor)
-        toy_mu1 = self.pseudoExperiments(n_toy_1, mu_1, systematic_uncertainties, scaling_factor)
+    def testStatisticsPlot(self, mu_0, mu_1, n_toy=100000, percentage_values=[16, 50, 84], scale_factor=1, systematic_uncertainties={}, n_bins=50, log=False, title=''):
+        bg_toy, signal_toy = self.pseudoExperiments(n_toy, systematic_uncertainties, scale_factor)
+        toy_mu0 = bg_toy + mu_0 * signal_toy
+        toy_mu1 = bg_toy + mu_1 * signal_toy
         test_stat_mu0 = self.neymanPearsonLikelihoodRatio(mu_0, mu_1, toy_mu0)
         test_stat_mu1 = self.neymanPearsonLikelihoodRatio(mu_0, mu_1, toy_mu1)
 
         expected_significance, expected_pvalues, expected_quantiles = self.significanceCalculation(test_stat_mu0, test_stat_mu1, percentage_values)
 
         bin_contents_total, bin_edges, _ = plt.hist(
-                                             [test_stat_mu1, test_stat_mu0],
+                                             [test_stat_mu0, test_stat_mu1],
                                              bins=n_bins,
                                              density=True,
                                              label=[r'$\mu$ = {:.2g}'.format(mu_0), r'$\mu$ = {:.2g}'.format(mu_1)],
@@ -96,7 +96,7 @@ class significanceCalculator(object):
         bin_width = bin_edges[1] - bin_edges[0]
         plt.ylabel("Probability / {:.2f}".format(bin_width))
         plt.xlabel("Neyman Pearson likelihood ratio")
-        plt.title("MicroBooNE Preliminary", loc='right')
+        plt.title(title+"\nMicroBooNE Preliminary - {} POT".format(scale_factor*self.pot), loc='left')
         ax = plt.gca()
         ymin, ymax = ax.get_ylim()
         heights = {16: 0.5, 50: 0.7, 84: 0.5}
@@ -124,7 +124,7 @@ class significanceCalculator(object):
         for name, prediction in self.expected_bin_contents.items():
             if name not in systematic_uncertainties.keys():
                 systematic_uncertainties[name] = 0
-            textstr_list.append(r'{}: {:.2g} $\pm$ {:.2g}%'.format(name, prediction.sum(), systematic_uncertainties[name]*100))
+            textstr_list.append(r'{}: {:.2g} $\pm$ {:.2g}%'.format(name, scale_factor*prediction.sum(), systematic_uncertainties[name]*100))
         textstr = '\n'.join(textstr_list)
         props = dict(boxstyle='round', facecolor='white', alpha=0.5, linewidth=0.5)
         plt.text(1.08, 0.5, textstr, transform=ax.transAxes, fontsize=10, verticalalignment='top', bbox=props)
@@ -155,4 +155,4 @@ class significanceCalculator(object):
         plt.ylabel(r'Expected significance [$\sigma$]')
         plt.xlabel('Collected POT')
         plt.title(title, loc='left')
-        plt.title('MicroBooNE preliminary', loc='right')
+        plt.title(title+"\nMicroBooNE Preliminary", loc='left')
