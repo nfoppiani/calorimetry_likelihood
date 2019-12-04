@@ -12,7 +12,10 @@ class plotter():
 
         for name, array in arrays.items():
             if (branch_weights_name is None) or ('beam' in name):
-                array_len = len(list(array.values())[0])
+                if type(array) == 'dict':
+                    array_len = len(list(array.values())[0])
+                else:
+                    array['weight'] = np.ones(len(array))
             else:
                 array['weight'] = array[branch_weights_name]
             array['weight'] = array['weight']*self.scale_factors[name]
@@ -65,10 +68,10 @@ class plotter():
             datasets_predictions.append(datasets_prediction)
             weights_predictions.append(weights_prediction)
             # do beam ON
-            name = 'beam_on'
+            dataset_name = 'beam_on'
             label_data = 'DATA Beam ON'
-            array = self.arrays[name]
-            datasets_data = getattr(array[variable][additional_selection_masks[name]], function)()
+            array = self.arrays[dataset_name]
+            datasets_data = getattr(array[variable][additional_selection_masks[dataset_name]], function)()
             beam_on_values, bin_edges = np.histogram(datasets_data,
                                              bins=binning[0],
                                              range=(binning[1], binning[2])
@@ -89,42 +92,46 @@ class plotter():
                                              range=(binning[1], binning[2]),
                                            )
 
-            label_data = 'DATA Beam ON - Beam OFF'
+            label_data = 'DATA ON - OFF'
             beam_on_values = beam_on_aux - beam_off_aux * self.scale_factors['beam_off']
             beam_on_y_err = np.sqrt(beam_on_aux + beam_off_aux * self.scale_factors['beam_off']**2)
 
-        for i, (category_branch_name, category_label) in enumerate(categories.items()):
+        aux_datasets_predictions = {}
+        aux_weights_predictions = {}
+
+        for dataset_name in prediction_datasets:
+            array = self.arrays[dataset_name]
+            array_variable = array[variable]
+            additional_selection_mask = additional_selection_masks[dataset_name]
+
+            if function == 'flatten':
+                partial_prediction = array_variable[additional_selection_mask]
+            else:
+                partial_prediction = getattr(array_variable[additional_selection_mask], function)()
+
+            element_mask = (partial_prediction == array_variable[additional_selection_mask])
+
+            for (category_branch_name, category_label) in categories.items():
+                extended_category_mask = (array[category_branch_name] * (array_variable == array_variable))
+                category_mask = extended_category_mask[additional_selection_mask]
+                full_mask = (category_mask & element_mask)
+                prediction = array_variable[additional_selection_mask][full_mask].flatten()
+                extended_weights = (array['weight'] * (array_variable == array_variable))
+                weights = extended_weights[additional_selection_mask][full_mask].flatten()
+
+                if category_label not in aux_datasets_predictions.keys():
+                    aux_datasets_predictions[category_label] = [prediction]
+                    aux_weights_predictions[category_label] = [weights]
+                else:
+                    aux_datasets_predictions[category_label].append(prediction)
+                    aux_weights_predictions[category_label].append(weights)
+
+        for i, category_label in enumerate(categories.values()):
             labels_predictions.append(category_label)
             colors.append('C{}'.format(i+1))
 
-            datasets_prediction = []
-            weights_prediction = []
-
-            for dataset_name in prediction_datasets:
-                array = self.arrays[dataset_name]
-                additional_selection_mask = additional_selection_masks[dataset_name]
-
-                if function == 'flatten':
-                    partial_prediction = array[variable][additional_selection_mask]
-                else:
-                    partial_prediction = getattr(array[variable][additional_selection_mask], function)()
-
-                element_mask = (partial_prediction == array[variable][additional_selection_mask])
-                extended_category_mask = array[category_branch_name] * (array[variable] == array[variable])
-                category_mask = extended_category_mask[additional_selection_mask]
-                full_mask = (category_mask & element_mask)
-                prediction = array[variable][additional_selection_mask][full_mask].flatten()
-                extended_weights = (array['weight'] * (array[variable] == array[variable]))
-                weights = extended_weights[additional_selection_mask][full_mask].flatten()
-
-                datasets_prediction.append(prediction)
-                weights_prediction.append(weights)
-
-            datasets_predictions.append(np.concatenate(datasets_prediction))
-            weights_predictions.append(np.concatenate(weights_prediction))
-
-        # for name, dataset, weight in zip(labels_predictions, datasets_predictions, weights_predictions):
-        #     print(name, len(dataset), len(weight))
+            datasets_predictions.append(np.concatenate(aux_datasets_predictions[category_label]))
+            weights_predictions.append(np.concatenate(aux_weights_predictions[category_label]))
 
         bin_contents_prediction, bin_edges, patches_hist = ax[0].hist(datasets_predictions,
                  bins=binning[0],

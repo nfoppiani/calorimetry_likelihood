@@ -1,7 +1,6 @@
 #ifndef LLRPID_H
 #define LLRPID_H
 
-#include <stdlib.h>
 #include "LLRPID_proton_muon_lookup.h"
 
 namespace searchingfornues
@@ -70,7 +69,7 @@ namespace searchingfornues
       size_t lookup_index = lookup_row_index;
       lookup_index += digitize(dedx_value, dedx_bin_edges[plane]);
 
-      std::cout << "lookup index " << lookup_index << std::endl;
+      // std::cout << "lookup index " << lookup_index << std::endl;
       return lookup_index;
     }
 
@@ -85,6 +84,8 @@ namespace searchingfornues
       float ll_out = 0;
       for(size_t i=0; i<dedx_values.size(); i++)
       {
+        if ((i==0) || (i==(dedx_values.size()-1)))
+          continue;
         std::vector<float> aux_par;
         for(std::vector<float> par_value: par_values)
         {

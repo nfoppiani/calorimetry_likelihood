@@ -137,3 +137,17 @@ def fast_scintillation_final_state(array):
 
 def non_inelastic_final_state(array):
     array['non_inelastic'] = (array['backtracked_end_process'].regular() != b'ProtonInelastic')
+
+def first_last_hit_mask(array):
+    for plane in ['_u', '_v', '_y']:
+        array['first_last_hit_mask'+plane] = (array['rr'+plane].max() != array['rr'+plane]) & (array['rr'+plane].min() != array['rr'+plane])
+
+def hit_distance_from_start(array):
+    for plane in ['_u', '_v', '_y']:
+        array['dist_from_start'+plane] = np.sqrt((array['x'+plane]-array['trk_sce_start_x'])**2 +
+                                          (array['y'+plane]-array['trk_sce_start_y'])**2 +
+                                          (array['z'+plane]-array['trk_sce_start_z'])**2)
+
+def norm_direction_vector(array):
+    for plane in ['_u', '_v', '_y']:
+        array['norm_dir'+plane] = np.sqrt(array['dir_z'+plane]**2 + array['dir_x'+plane]**2 + array['dir_y'+plane]**2)

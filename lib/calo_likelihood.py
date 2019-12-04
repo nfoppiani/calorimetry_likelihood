@@ -38,7 +38,7 @@ class caloLikelihood(object):
         self.data_masks = {}
         self.lookup_tables_data = {}
 
-    def load_data(self, array_data, data_masks=None, overall_data_mask=None, overall_data_masks_plane=None):
+    def load_data(self, array_data, data_masks=None, overall_data_mask=None, overall_data_masks_planes=None):
         self.array_data = array_data
 
         if overall_data_mask is None:
@@ -46,10 +46,10 @@ class caloLikelihood(object):
         else:
             self.overall_data_mask = overall_data_mask
 
-        if overall_data_masks_plane is None:
-            self.overall_data_masks_plane = (array_data == array_data)
+        if overall_data_masks_planes is None:
+            self.overall_data_masks_planes = (array_data == array_data)
         else:
-            self.overall_data_masks_plane = overall_data_masks_plane
+            self.overall_data_masks_planes = overall_data_masks_planes
 
         self.data_masks = {}
         if data_masks is None:
@@ -158,7 +158,7 @@ class caloLikelihood(object):
         if data_selection not in self.lookup_tables_data.keys():
             self.lookup_tables_data[data_selection] = {}
 
-        mask = (self.data_masks[data_selection] & self.overall_data_masks_plane[plane_num])
+        mask = (self.data_masks[data_selection] & self.overall_data_masks_planes[plane_num])
         self.lookup_tables_data[data_selection][
             plane_num] = self.buildLookUpTable(self.array_data, mask,
                                                plane_num, cali)
@@ -248,7 +248,6 @@ class caloLikelihood(object):
                             parameters_value):
         assert hasattr(self, 'lookup_table_llr')
         lookup_index = self.findLookUpRowDedxIndex(plane_num, parameters_value, dedx_value)
-        print(lookup_index)
         return self.lookup_table_llr[plane_num][lookup_index]
 
     def prepareForLikelihoodWholeDataset(self, array, plane_num, cali=False):
@@ -280,22 +279,22 @@ class caloLikelihood(object):
     def addCalorimetryVariables(self, array, pdg_codes=[13, 2212], cali=False):
         assert len(pdg_codes) == 2
         for plane in [0, 1, 2]:
-            array['like_{}_{}'.format(pdg_codes[0], i)] = self.likelihoodWholeDataset(array=array,
+            array['like_{}_{}'.format(pdg_codes[0], plane)] = self.likelihoodWholeDataset(array=array,
                                           plane_num=plane,
                                           pdg_code=pdg_codes[0],
                                           cali=cali)
-            array['like_{}_{}'.format(pdg_codes[1], i)] = self.likelihoodWholeDataset(array=array,
+            array['like_{}_{}'.format(pdg_codes[1], plane)] = self.likelihoodWholeDataset(array=array,
                                               plane_num=plane,
                                               pdg_code=pdg_codes[1],
                                               cali=cali)
-            array['like_{}_sum_{}'.format(pdg_codes[0], i)] = array['like_{}_{}'.format(pdg_codes[0], plane)].sum()
-            array['like_{}_sum_{}'.format(pdg_codes[1], i)] = array['like_{}_{}'.format(pdg_codes[1], plane)].sum()
-            array['log_like_ratio_{}'.format(i)] = array['like_{}_sum_{}'.format(pdg_codes[0], plane)] - array['like_{}_sum_{}'.format(pdg_codes[1], plane)]
+            array['like_{}_sum_{}'.format(pdg_codes[0], plane)] = array['like_{}_{}'.format(pdg_codes[0], plane)].sum()
+            array['like_{}_sum_{}'.format(pdg_codes[1], plane)] = array['like_{}_{}'.format(pdg_codes[1], plane)].sum()
+            array['log_like_ratio_{}'.format(plane)] = array['like_{}_sum_{}'.format(pdg_codes[0], plane)] - array['like_{}_sum_{}'.format(pdg_codes[1], plane)]
 
         array['log_like_ratio'] = array['log_like_ratio_0'] + array['log_like_ratio_1'] + array['log_like_ratio_2']
         array['log_like_ratio_01'] = array['log_like_ratio_0'] + array['log_like_ratio_1']
 
-    def addCalorimetryVariablesFromLLRTable(self, array, cali=False):
+    def addCalorimetryVariablesFromLLRTable(self, array, quality_masks_planes=None, cali=False):
         assert hasattr(self, 'lookup_table_llr')
         for plane_num in [0, 1, 2]:
             dedx_values, parameters_values, starts, stops = self.prepareForLikelihoodWholeDataset(array, plane_num, cali=False)
@@ -303,8 +302,12 @@ class caloLikelihood(object):
             out_llr = awkward.JaggedArray(content=aux_llr,
                                        starts=starts,
                                        stops=stops)
-            array['llr_hit_{}'.format(i)] = out_llr
-            array['llr_sum_{}'.format(i)] = array['llr_hit_{}'.format(i)].sum()
+            array['llr_hit_{}'.format(plane_num)] = out_llr
+            inf_mask = ~np.isinf(out_llr)
+            if quality_masks_planes is not None:
+                quality_mask_plane = quality_masks_planes[plane_num]
+                inf_mask = inf_mask & quality_mask_plane
+            array['llr_sum_{}'.format(plane_num)] = out_llr[inf_mask].sum()
         array['llr_012'] = array['llr_sum_0'] + array['llr_sum_1'] + array['llr_sum_2']
         array['llr_01'] = array['llr_sum_0'] + array['llr_sum_1']
 
@@ -494,7 +497,7 @@ class caloLikelihood(object):
 
         data_mask = self.createMaskFromParameterValue('data', plane_num,
                                                       parameters_value)
-        data_mask = (data_mask & self.data_masks[data_selection] & self.overall_data_masks_plane[plane_num])
+        data_mask = (data_mask & self.data_masks[data_selection] & self.overall_data_masks_planes[plane_num])
 
         dedx_mc = self.array[self.dedx_var[plane_num]][mc_mask].flatten()
         if len(dedx_mc) == 0:
@@ -503,53 +506,87 @@ class caloLikelihood(object):
             self.dedx_var[plane_num]][data_mask].flatten()
 
         likelihood_values = []
-        mu_values = np.linspace(*mu_binning)
-        for mu in mu_values:
-            likelihood_values.append(
-                self.computeCalibrationLikelihood(mu, dedx_mc, dedx_data,
-                                                  plane_num, parameters_value,
-                                                  binned_data))
+        if len(mu_binning) == 1:
+            mu_values = np.linspace(*mu_binning)
+            for mu in mu_values:
+                likelihood_values.append(
+                    self.computeCalibrationLikelihood(mu, dedx_mc, dedx_data,
+                                                      plane_num, parameters_value,
+                                                      binned_data))
 
-        if method == 'scipy':
-            res = minimize(self.computeCalibrationLikelihood,
-                           x0=1,
-                           args=(dedx_mc, dedx_data, plane_num,
-                                 parameters_value, binned_data),
-                           method='Nelder-Mead')
-            min_mu = res.x[0]
-        else:
-            p0, p1, p2 = np.polyfit(mu_values, likelihood_values, deg=2)
-            fitted_function = np.poly1d([p0, p1, p2])
-            best_mu = -p1 / 2. / p0
-            sigma_mu = (2 * p0)**(-0.5)
+            if method == 'scipy':
+                res = minimize(self.computeCalibrationLikelihood,
+                               x0=1,
+                               args=(dedx_mc, dedx_data, plane_num,
+                                     parameters_value, binned_data),
+                               method='L-BFGS-B')
+                min_mu = res.x[0]
+            else:
+                p0, p1, p2 = np.polyfit(mu_values, likelihood_values, deg=2)
+                fitted_function = np.poly1d([p0, p1, p2])
+                best_mu = -p1 / 2. / p0
+                sigma_mu = (2 * p0)**(-0.5)
 
+        if len(mu_binning) == 2:
+            mu0_edges = np.linspace(*mu_binning[0])
+            mu1_edges = np.linspace(*mu_binning[1])
+            mu0_centers = (mu0_edges[:-1] + mu0_edges[1:])/2
+            mu1_centers = (mu1_edges[:-1] + mu1_edges[1:])/2
+            for mu in product(mu0_centers, mu1_centers):
+                likelihood_values.append(
+                    self.computeCalibrationLikelihood(mu, dedx_mc, dedx_data,
+                                                      plane_num, parameters_value,
+                                                      binned_data))
+
+            if method == 'scipy':
+                res = minimize(self.computeCalibrationLikelihood,
+                               x0=(1, 0.),
+                               args=(dedx_mc, dedx_data, plane_num,
+                                     parameters_value, binned_data), method='L-BFGS-B')
+                min_mu = res.x
+        print(min_mu)
         if plot:
             label = self.produceLabelParameters(plane_num, parameters_value)
-            plt.plot(mu_values, likelihood_values, '.', label=label)
-            if method == 'scipy':
-                plt.plot(min_mu,
-                         self.computeCalibrationLikelihood(
-                             min_mu, dedx_mc, dedx_data, plane_num,
-                             parameters_value, binned_data),
-                         'o',
-                         label='best fit $\mu$ = {:.2f}'.format(min_mu))
-            else:
-                plt.plot(mu_values,
-                         fitted_function(mu_values),
-                         label='parabolic fit')
-                plt.plot(best_mu,
-                         fitted_function(best_mu),
-                         'o',
-                         label='best fit $\mu$ = {:.2f}'.format(min_mu))
-            plt.legend(loc='best', frameon=False)
-            plt.xlabel("Calibration factor")
-            plt.ylabel("Negative log likelihood")
+            if len(mu_binning) == 1:
+                plt.plot(mu_values, likelihood_values, '.', label=label)
+                if method == 'scipy':
+                    plt.plot(min_mu,
+                             self.computeCalibrationLikelihood(
+                                 min_mu, dedx_mc, dedx_data, plane_num,
+                                 parameters_value, binned_data), 'o',
+                                 label='best fit $\mu$ = {:.2f}'.format(min_mu))
+                else:
+                    plt.plot(mu_values,
+                             fitted_function(mu_values),
+                             label='parabolic fit')
+                    plt.plot(best_mu,
+                             fitted_function(best_mu),
+                             'o',
+                             label='best fit $\mu$ = {:.2f}'.format(min_mu))
+                plt.legend(loc='best', frameon=False)
+                plt.xlabel("Calibration factor")
+                plt.ylabel("Negative log likelihood")
+                plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
+            if len(mu_binning) == 2:
+                if method == 'scipy':
+                    n_bins = (mu_binning[0][2]-1, mu_binning[1][2]-1)
+                    likelihood_table = np.array(likelihood_values).reshape(n_bins)
+                    plt.pcolormesh(mu0_edges, mu1_edges, likelihood_table.T)
+                    plt.colorbar()
+                    plt.xlabel(self.parameters_legend_names[plane_num][1])
+                    plt.ylabel(self.parameters_legend_names[plane_num][0])
+                    plt.title('dE/dx calibration factor\nACPT track candidates, plane {}'.format(plane_num), loc='left')
+                    plt.title('MicroBooNE preliminary\n\n', loc='right')
+                    plt.tight_layout()
+                    plt.plot(min_mu[0], min_mu[1],
+                             'o',
+                             label=r'best fit $\mu$ = {:.2f}, $\sigma$ = {:.2f}'.format(min_mu[0], min_mu[1]))
+                    plt.xlabel("$\mu$")
+                    plt.ylabel("$\sigma")
             plt.title('Calibration likelihood Scan\nACPT track candidates\n',
                       loc='left')
             plt.title('MicroBooNE preliminary\n', loc='right')
-            plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
             plt.tight_layout()
-
         return min_mu
 
     def buildCalibrationTable(self,
@@ -631,20 +668,17 @@ class caloLikelihood(object):
                  label=label,
                  density=True,
                  **kwargs)
-        plt.ylim(bottom=0)
         plt.ylabel('Probability density')
         return bin_contents
 
     def plotVariableMCFancy(self, var_name, bins, range, function_mask=None, quality_mask=True, label=None, add_to_title=None, **kwargs):
         bin_contents = self.plotVariableMC(var_name, bins, range, function_mask, quality_mask, label, **kwargs)
-        plt.ylim(bottom=0)
-        if add_to_title is None:
-            title = 'Simulated tracks'
-        else:
-            title = ('Simulated tracks\n' + add_to_title)
+        title = r'BNB $\nu$ + overlay'
+        if add_to_title is not None:
+            title += add_to_title
         plt.title(title, loc='left')
         plt.title('MicroBooNE preliminary', loc='right')
-        plt.legend()
+        plt.legend(loc='best')
         return bin_contents
 
     def plotVariableData(self, var_name, bins, range, function_mask=None, data_selection='default', label=None, **kwargs):
@@ -698,31 +732,62 @@ class caloLikelihood(object):
         plt.ylabel('Data/MC')
         return fig, ax
 
-    def rocCurve(self, variable, pdg_codes, plot=False, variable_label=None, selection_function=None, **selection_kwargs):
+    def rocCurve(self, variable, pdg_codes, plot=False, variable_label=None, quality_mask=True, additional_selection_mask=None):
         assert len(pdg_codes) == 2
-        if selection_function is None:
-            selection_mask = (self.array[self.pdgcode_var] == self.array[self.pdgcode_var])
-        else:
-            selection_mask = selection_function(self.array, **selection_kwargs)
+        selection_mask = ~np.isnan(self.array[variable])
         pdg_mask = (np.abs(self.array[self.pdgcode_var]) == pdg_codes[0]) |\
                    (np.abs(self.array[self.pdgcode_var]) == pdg_codes[1])
         selection_mask = pdg_mask & selection_mask
 
-        score = 2*np.arctan(self.array[variable][selection_mask])/pi
+        if quality_mask:
+            selection_mask = selection_mask & self.quality_mask
+        if additional_selection_mask is not None:
+            selection_mask = selection_mask & additional_selection_mask
+
+        score = self.array[variable][selection_mask]
         true_label = np.abs(self.array[self.pdgcode_var][selection_mask])
         fpr, tpr, _ = roc_curve(true_label, score, pos_label=pdg_codes[0])
         roc_auc = auc(fpr, tpr)
+        if roc_auc < 0.5:
+            tpr = 1 - tpr
+            fpr = 1 - fpr
+            roc_auc = auc(fpr, tpr)
         if plot:
             if variable_label is None:
                 variable_label = variable
             plt.plot(fpr, tpr, lw=2, label='{}, area = {:.2f}'.format(variable_label, roc_auc))
-            # plt.plot([0, 1], [0, 1], lw=0.5, color='k', linestyle='--', alpha=0.05)
             plt.xlim([0.0, 1.0])
             plt.ylim([0.0, 1.05])
             plt.xlabel('False Positive Rate')
             plt.ylabel('True Positive Rate')
             plt.legend(loc="lower right")
+            plt.title('MicroBooNE preliminary', loc='right')
         return roc_auc
+
+    def auc1D(self, variable, pdg_codes, selection_function, parameter_name, parameter_bin_edges, legend_label, quality_mask=True):
+        auc_values = []
+        for parameter_low, parameter_high in zip(parameter_bin_edges[:-1], parameter_bin_edges[1:]):
+            additional_selection_mask = selection_function(self.array, parameter_name, (parameter_low, parameter_high))
+            auc_values.append(self.rocCurve(variable, pdg_codes, quality_mask=quality_mask, additional_selection_mask=additional_selection_mask))
+
+        parameter_bin_centers = (parameter_bin_edges[:-1] + parameter_bin_edges[1:])/2
+        plt.plot(parameter_bin_centers, auc_values, label=legend_label)
+        plt.ylabel('Area under ROC (aka separation power)')
+        plt.title('MicroBooNE preliminary', loc='right')
+
+    def auc2D(self, variable, pdg_codes, selection_function, parameters_names, parameters_bin_edges, quality_mask=True):
+        auc_values = []
+        parameters_bin_edges_bin_by_bin = [zip(parameter_bin_edges[:-1], parameter_bin_edges[1:]) for parameter_bin_edges in parameters_bin_edges]
+
+        for parameters_edges in product(*parameters_bin_edges_bin_by_bin):
+            additional_selection_mask = selection_function(self.array, parameters_names, parameters_edges)
+            auc_values.append(self.rocCurve(variable, pdg_codes, quality_mask=quality_mask, additional_selection_mask=additional_selection_mask))
+
+        n_bins = (len(parameters_bin_edges[0])-1, len(parameters_bin_edges[1])-1)
+        auc_2d = np.array(auc_values).reshape(n_bins).T
+        plt.pcolormesh(*parameters_bin_edges, auc_2d)
+        plt.colorbar()
+        plt.title('MicroBooNE preliminary', loc='right')
 
     def printArray(self, array, out_file, title):
         out_file.write('\n\nstd::vector<float> {}'.format(title) + ' = {\n')
@@ -730,20 +795,21 @@ class caloLikelihood(object):
             if (i!=0) & (i%20 == 0):
                 out_file.write('\n')
             if np.isinf(elem):
-                if elem > 0:
-                    out_file.write('std::numeric_limits<float>::max(), ')
-                elif elem < 0:
-                    out_file.write('std::numeric_limits<float>::lowest(), ')
-                else:
-                    print('Error: elem {} inf and 0 at the same time'.format(elem))
+                # if elem > 0:
+                #     out_file.write('std::numeric_limits<float>::max(), ')
+                # elif elem < 0:
+                #     out_file.write('std::numeric_limits<float>::lowest(), ')
+                # else:
+                #     print('Error: elem {} inf and 0 at the same time'.format(elem))
+                out_file.write('0.000, ')
             else:
                 out_file.write('{:.3f}, '.format(elem))
         out_file.write('\n};\n\n')
 
     def printCplusplusCode(self, filename, lookup_name='PROTON_MUON', planes=[0, 1, 2]):
         assert hasattr(self, 'lookup_table_llr')
-        out_file = open(filename, 'a')
-        out_file.write('#ifndef {}_LOOKUP_H\n#define {}_LOOKUP_H\n#include <stdlib.h>'.format(lookup_name, lookup_name))
+        out_file = open(filename, 'w')
+        out_file.write('#ifndef {}_LOOKUP_H\n#define {}_LOOKUP_H\n#include <stdlib.h>\n#include <vector>\n\n'.format(lookup_name, lookup_name))
         for plane in planes:
             out_file.write('\nsize_t dedx_num_bins_pl_{} = {};'.format(plane, self.dedx_num_bins[plane]))
             self.printArray(self.dedx_bin_edges[plane], out_file, title='dedx_edges_pl_{}'.format(plane))
