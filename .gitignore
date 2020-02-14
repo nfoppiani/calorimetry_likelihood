@@ -13,7 +13,7 @@ calorimetry_likelihood/old/*
 __pycache__/
 *.py[cod]
 *$py.class
-
+*.dat
 # C extensions
 *.so
 
