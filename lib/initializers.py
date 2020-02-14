@@ -1,4 +1,4 @@
-from helpers import *
+from general_functions import *
 from categorisation import *
 
 def initialisation_for_selection(array):
@@ -25,6 +25,8 @@ def initialisation_for_caloriemtry_data_mc(array):
                             fiducial_x=[20, 20], fiducial_y=[20, 20], fiducial_z=[20, 20])
     non_inelastic_final_state(array)
     first_last_hit_mask(array)
+    for i, plane in enumerate(['_u', '_v', '_y']):
+        polar_angles(array, 'dir_x'+plane, 'dir_y'+plane, 'dir_z'+plane, i)
 
 def initialisation_for_calorimetry_shower(array):
     overlay_purity(array)
@@ -37,3 +39,5 @@ def initialisation_for_calorimetry_shower(array):
     range_from_rr(array, 'rr_y', 'range_y')
     hit_distance_from_start(array)
     norm_direction_vector(array)
+    for i, plane in enumerate(['_u', '_v', '_y']):
+        polar_angles(array, 'dir_x'+plane, 'dir_y'+plane, 'dir_z'+plane, i)
