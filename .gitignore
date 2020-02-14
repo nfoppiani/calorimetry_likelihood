@@ -1,6 +1,7 @@
 # Folders that are not relevant
 check_sce/*
 fiducial_volume_studies/*
+nueccinc/*
 numi_flash/*
 selection/*
 ShowerTrackFit/*
