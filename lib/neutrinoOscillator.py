@@ -52,3 +52,30 @@ class neutrinoOscillator(object):
         plt.ylabel('Neutrino Flux')
         plt.legend()
         plt.title('Electron neutrino flux at MicroBooNE\n' + neutrinoOscillator.addRange(deltam2, sin2theta2))
+
+    def addEventRateFile(self, tfile, pot_scaling, weightToBeApplied='weightSplineTimesTune'):
+        self.array = uproot.open(tfile)['nuselection']['NeutrinoSelectionFilter'].arrays(branches=['nu_e', weightToBeApplied], namedecode='utf-8')
+        self.array['weightSplineTimesTune'][self.array['weightSplineTimesTune'] <= 0] = 1.
+        self.array['weightSplineTimesTune'][np.isinf(self.array['weightSplineTimesTune'])] = 1.
+        self.array['weightSplineTimesTune'][self.array['weightSplineTimesTune'] > 100] = 1.
+        self.array['weightSplineTimesTune'][np.isnan(self.array['weightSplineTimesTune']) == True] = 1.
+
+        self.pot_scaling = pot_scaling
+        self.weightToBeApplied = weightToBeApplied
+
+    def plotOscillatedRate(self, deltam2=1.32, sin2theta2=0.001):
+        self.array['this_weight'] = self.pot_scaling* self.array[self.weightToBeApplied] * (1. + self.oscillationWeightAtEnergy(self.array['nu_e'], deltam2, sin2theta2))
+
+        plt.hist(self.array['nu_e'],
+                 bins=self.bin_edges[::2],
+                 weights=self.array['this_weight'],
+                 label=r'BNB $\nu_{\mu} \rightarrow \nu_e$ events')
+        plt.hist(self.array['nu_e'],
+                 bins=self.bin_edges[::2],
+                 weights=self.pot_scaling* self.array[self.weightToBeApplied],
+                 label=r'BNB $\nu_e$ events'
+                 )
+        plt.xlabel('Neutrino Energy [GeV]')
+        plt.ylabel('Expected number of electron neutrino events')
+        plt.legend()
+        plt.title('Charged Current electron neutrino event rate at MicroBooNE\nMicroBooNE preliminary - 10.1e20 POT\n' + neutrinoOscillator.addRange(deltam2, sin2theta2), loc='left')

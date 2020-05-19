@@ -1,3 +1,4 @@
+import functools, operator
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
@@ -12,18 +13,23 @@ class plotter():
 
         for name, array in arrays.items():
             if (branch_weights_name is None) or ('beam' in name):
-                if type(array) == 'dict':
+                if type(array) == dict:
                     array_len = len(list(array.values())[0])
+                    array['weight'] = np.ones(array_len)
                 else:
                     array['weight'] = np.ones(len(array))
             else:
                 array['weight'] = array[branch_weights_name]
             array['weight'] = array['weight']*self.scale_factors[name]
 
-    def plot_pot_normalised_var(self, variable, binning, categories, function='flatten', additional_selection=None, prediction_datasets=['bnb_dirt', 'bnb_nu', 'bnb_nue'], title=None, xlabel=None, log=False, subtracted=False, onebin=False):
+    def plot_pot_normalised_var(self, variable, binning, categories, function='flatten', additional_selection=None, prediction_datasets=['bnb_dirt', 'bnb_nu', 'bnb_nue'], title=None, xlabel=None, log=False, subtracted=False, onebin=False, area_norm=False, legend=True):
+        if legend:
+            figsize = (5.1*1.6, 5)
+        else:
+            figsize = (5.1*1.3, 5)
         fig, ax = plt.subplots(ncols=1,
                                nrows=2,
-                               figsize=(5.1*1.6,5),
+                               figsize=figsize,
                                sharex='col',
                                gridspec_kw={'height_ratios':[3, 1]})
 
@@ -94,8 +100,8 @@ class plotter():
 
             label_data = 'DATA ON - OFF'
             beam_on_values = beam_on_aux - beam_off_aux * self.scale_factors['beam_off']
-            beam_on_y_err = np.sqrt(beam_on_aux + beam_off_aux * self.scale_factors['beam_off']**2)
-
+            # beam_on_y_err = np.sqrt(beam_on_aux + beam_off_aux * self.scale_factors['beam_off']**2)
+            beam_on_y_err = np.sqrt(beam_on_aux + 2*beam_off_aux * self.scale_factors['beam_off'])
         aux_datasets_predictions = {}
         aux_weights_predictions = {}
 
@@ -110,29 +116,31 @@ class plotter():
                 partial_prediction = getattr(array_variable[additional_selection_mask], function)()
 
             element_mask = (partial_prediction == array_variable[additional_selection_mask])
-
             for (category_branch_name, category_label) in categories.items():
                 extended_category_mask = (array[category_branch_name] * (array_variable == array_variable))
                 category_mask = extended_category_mask[additional_selection_mask]
                 full_mask = (category_mask & element_mask)
                 prediction = array_variable[additional_selection_mask][full_mask].flatten()
-                extended_weights = (array['weight'] * (array_variable == array_variable))
+                out_true_vector = (array_variable == array_variable)
+                extended_weights = (array['weight'] * out_true_vector)
                 weights = extended_weights[additional_selection_mask][full_mask].flatten()
-
                 if category_label not in aux_datasets_predictions.keys():
                     aux_datasets_predictions[category_label] = [prediction]
                     aux_weights_predictions[category_label] = [weights]
                 else:
                     aux_datasets_predictions[category_label].append(prediction)
                     aux_weights_predictions[category_label].append(weights)
-
         for i, category_label in enumerate(categories.values()):
             labels_predictions.append(category_label)
             colors.append('C{}'.format(i+1))
 
             datasets_predictions.append(np.concatenate(aux_datasets_predictions[category_label]))
             weights_predictions.append(np.concatenate(aux_weights_predictions[category_label]))
-
+        if area_norm:
+            total_beam_on = beam_on_values.sum()
+            total_prediction = functools.reduce(operator.add, [w.sum() for w in weights_predictions])
+            additional_scale = total_beam_on/total_prediction
+            weights_predictions = [w*additional_scale for w in weights_predictions]
         bin_contents_prediction, bin_edges, patches_hist = ax[0].hist(datasets_predictions,
                  bins=binning[0],
                  range=(binning[1], binning[2]),
@@ -160,7 +168,6 @@ class plotter():
                                               hatch="\\\\\\\\\\",
                                               Fill=False,
                                               linewidth=0,alpha=0.4))
-
         # now plot the data
         bin_centers = (bin_edges[:-1] + bin_edges[1:])/2.
         beam_on_x_err = [(bin_edges[i+1]-bin_edges[i])/2 for i in range(len(bin_edges)-1)]
@@ -193,13 +200,23 @@ class plotter():
         ax[0].set_title(title, loc='left')
         ax[0].set_title('BNB {:.3f}e19 POT'.format(self.pot_beam_on/1e19), loc='right')
         ax[0].autoscale()
-
         # chi2
-        chi2_bins = (beam_on_values - bin_contents_prediction[-1])**2 / (bin_contents_prediction[-1] + bin_errors_prediction**2)
-        chi2 = np.sum(chi2_bins[~np.isnan(chi2_bins)])
-        ndof = len(chi2_bins[~np.isnan(chi2_bins)])
-        ax[0].text(x=0.6, y=0.9,
-                   s=r"$X^2$ = {:.1f}, ndf = {:.0f}".format(chi2, ndof),
+        if subtracted is False:
+            chi2_errors = (bin_contents_prediction[-1] + bin_errors_prediction**2)
+        else:
+            chi2_errors = (bin_contents_prediction[-1] + bin_errors_prediction**2 + 2*beam_off_aux * self.scale_factors['beam_off'])
+        chi2_bins = (beam_on_values - bin_contents_prediction[-1])**2 / chi2_errors
+        chi2 = np.sum(chi2_bins[chi2_errors != 0])
+        # if np.isnan(chi2):
+        #     import pdb; pdb.set_trace()
+        # if np.isinf(chi2):
+        #     import pdb; pdb.set_trace()
+        ndof = (chi2_errors != 0).sum()
+        aux_string = r"$X^2$ = {:.1f}, ndf = {:.0f}".format(chi2, ndof)
+        if area_norm:
+            aux_string += "\nArea normalised\nScaled by {:.3g}".format(additional_scale)
+        ax[0].text(x=0.6, y=0.75,
+                   s=aux_string,
                    transform=ax[0].transAxes)
 
         if onebin:
@@ -221,8 +238,9 @@ class plotter():
             ax[1].set_xlabel(xlabel)
             ax[0].set_ylabel("Entries / {:.2f}".format(bin_width))
 
-        handles, labels = ax[0].get_legend_handles_labels()
-        ax[0].legend(handles[::-1], labels[::-1], bbox_to_anchor=(1.04,1), loc="upper left")
+        if legend:
+            handles, labels = ax[0].get_legend_handles_labels()
+            ax[0].legend(handles[::-1], labels[::-1], bbox_to_anchor=(1.04,1), loc="upper left")
 
         ax[1].set_ylim(0.5, 1.5)
         if subtracted is False:
@@ -231,7 +249,7 @@ class plotter():
             ax[1].set_ylabel('(ON - OFF)/MC')
 
         fig.tight_layout(h_pad=0.5)
-        return fig
+        return fig, chi2, ndof
 
     def plot_one_sample(self, dataset_name, variable, binning, categories, function='flatten', additional_selection=None, title=None, xlabel=None, log=False, onebin=False):
         fig = plt.figure(figsize=(5.1*1.6,5))
@@ -327,40 +345,75 @@ class plotter():
         ax.legend(handles[::-1], labels[::-1], bbox_to_anchor=(1.04,1), loc="upper left")
         plt.tight_layout()
 
-    def plot2d(self, dataset_name, variables, binning, additional_selection=None, title=None, labels=None, log=False):
-
+    def plot2d(self, dataset_name, variables, binning, additional_selection=None, title=None, labels=None, log=False, density=True):
         plt.figure()
         ax = plt.gca()
-        array = self.arrays[dataset_name]
+        if dataset_name == 'beam_subtracted':
+            beam_on = self.arrays['beam_on']
+            if additional_selection is not None:
+                additional_selection_mask_on = additional_selection(beam_on)
+            else:
+                additional_selection_mask_on = (beam_on[variables[0]] == beam_on[variables[0]])
+            partial_prediction_x_on = beam_on[variables[0]][additional_selection_mask_on]
+            partial_prediction_y_on = beam_on[variables[1]][additional_selection_mask_on]
+            element_mask_on = (partial_prediction_x_on == beam_on[variables[0]][additional_selection_mask_on])
+            prediction_x_on = partial_prediction_x_on.flatten()
+            prediction_y_on = partial_prediction_y_on.flatten()
+            extended_weights_on = (beam_on['weight'] * (beam_on[variables[0]] == beam_on[variables[0]]))
+            weights_on = extended_weights_on[additional_selection_mask_on][element_mask_on].flatten()
 
-        if additional_selection is not None:
-            additional_selection_mask = additional_selection(array)
+            beam_off = self.arrays['beam_off']
+            if additional_selection is not None:
+                additional_selection_mask_off = additional_selection(beam_off)
+            else:
+                additional_selection_mask_off = (beam_off[variables[0]] == beam_off[variables[0]])
+            partial_prediction_x_off = beam_off[variables[0]][additional_selection_mask_off]
+            partial_prediction_y_off = beam_off[variables[1]][additional_selection_mask_off]
+            element_mask_off = (partial_prediction_x_off == beam_off[variables[0]][additional_selection_mask_off])
+            prediction_x_off = partial_prediction_x_off.flatten()
+            prediction_y_off = partial_prediction_y_off.flatten()
+            extended_weights_off = (beam_off['weight'] * (beam_off[variables[0]] == beam_off[variables[0]]))
+            weights_off = extended_weights_off[additional_selection_mask_off][element_mask_off].flatten()
+
+            weights_off *= -1
+
+            prediction_x = np.concatenate([prediction_x_on, prediction_x_off])
+            prediction_y = np.concatenate([prediction_y_on, prediction_y_off])
+            weights = np.concatenate([weights_on, weights_off])
+            # import pdb; pdb.set_trace();
         else:
-            additional_selection_mask = (array[variable] == array[variable])
+            array = self.arrays[dataset_name]
 
-        partial_prediction_x = array[variables[0]][additional_selection_mask]
-        partial_prediction_y = array[variables[1]][additional_selection_mask]
+            if additional_selection is not None:
+                additional_selection_mask = additional_selection(array)
+            else:
+                additional_selection_mask = (array[variables[0]] == array[variables[0]])
 
-        element_mask = (partial_prediction_x == array[variables[0]][additional_selection_mask])
-        prediction_x = partial_prediction_x.flatten()
-        prediction_y = partial_prediction_y.flatten()
-        extended_weights = (array['weight'] * (array[variables[0]] == array[variables[0]]))
-        weights = extended_weights[additional_selection_mask][element_mask].flatten()
+            partial_prediction_x = array[variables[0]][additional_selection_mask]
+            partial_prediction_y = array[variables[1]][additional_selection_mask]
 
-        x = array[variables[0]][additional_selection_mask].flatten()
-        y = array[variables[1]][additional_selection_mask].flatten()
+            element_mask = (partial_prediction_x == array[variables[0]][additional_selection_mask])
+            prediction_x = partial_prediction_x.flatten()
+            prediction_y = partial_prediction_y.flatten()
+            extended_weights = (array['weight'] * (array[variables[0]] == array[variables[0]]))
+            weights = extended_weights[additional_selection_mask][element_mask].flatten()
+
+        # x = array[variables[0]][additional_selection_mask].flatten()
+        # y = array[variables[1]][additional_selection_mask].flatten()
         if log:
             plt.hist2d(prediction_x, prediction_y,
                        bins=(binning[0], binning[3]),
                        range=( (binning[1], binning[2]), (binning[4], binning[5])),
                        norm=LogNorm(),
-                       weights=weights
+                       weights=weights,
+                       density=density,
                        )
         else:
             plt.hist2d(prediction_x, prediction_y,
                        bins=(binning[0], binning[3]),
                        range=( (binning[1], binning[2]), (binning[4], binning[5])),
-                       weights=weights
+                       weights=weights,
+                       density=density,
                        )
         plt.colorbar()
 

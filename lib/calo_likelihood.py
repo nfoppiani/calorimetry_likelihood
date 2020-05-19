@@ -256,10 +256,7 @@ class caloLikelihood(object):
         lookup_index = self.findLookUpRowDedxIndex(plane_num, parameters_value, dedx_value)
         return self.lookup_table_llr[plane_num][lookup_index]
 
-    def prepareDedxWholeDataset(self, array, plane_num, cali=False):
-        # if cali:
-        #     assert hasattr(self, 'calibration_table')
-        #     assert plane_num in self.calibration_table.keys()
+    def prepareDedxWholeDataset(self, array, plane_num):
         dedx_var = self.dedx_var[plane_num]
         dedx_values = array[dedx_var].content
         starts = array[dedx_var].starts
@@ -268,31 +265,25 @@ class caloLikelihood(object):
         parameters_values = []
         for par_name in self.parameters[plane_num]:
             parameters_values.append(array[par_name].content)
-
-        # if cali:
-        #     dedx_values = self.applyCalibration(plane_num, dedx_values, parameters_values)
-
         return dedx_values, parameters_values, starts, stops
 
-    def likelihoodWholeDataset(self, array, plane_num, pdg_code, cali=False):
-        dedx_values, parameters_values, starts, stops = self.prepareDedxWholeDataset(array, plane_num, cali=False)
+    def likelihoodWholeDataset(self, array, plane_num, pdg_code):
+        dedx_values, parameters_values, starts, stops = self.prepareDedxWholeDataset(array, plane_num)
         aux_likelihood = self.logLikelihoodOneHit(plane_num, pdg_code,
                                                   dedx_values, parameters_values)
         return awkward.JaggedArray(content=aux_likelihood,
                                    starts=starts,
                                    stops=stops)
 
-    def addCalorimetryVariables(self, array, pdg_codes=[13, 2212], cali=False):
+    def addCalorimetryVariables(self, array, pdg_codes=[13, 2212]):
         assert len(pdg_codes) == 2
         for plane in [0, 1, 2]:
             array['like_{}_{}'.format(pdg_codes[0], plane)] = self.likelihoodWholeDataset(array=array,
                                           plane_num=plane,
-                                          pdg_code=pdg_codes[0],
-                                          cali=cali)
+                                          pdg_code=pdg_codes[0])
             array['like_{}_{}'.format(pdg_codes[1], plane)] = self.likelihoodWholeDataset(array=array,
                                               plane_num=plane,
-                                              pdg_code=pdg_codes[1],
-                                              cali=cali)
+                                              pdg_code=pdg_codes[1])
             array['like_{}_sum_{}'.format(pdg_codes[0], plane)] = array['like_{}_{}'.format(pdg_codes[0], plane)].sum()
             array['like_{}_sum_{}'.format(pdg_codes[1], plane)] = array['like_{}_{}'.format(pdg_codes[1], plane)].sum()
             array['log_like_ratio_{}'.format(plane)] = array['like_{}_sum_{}'.format(pdg_codes[0], plane)] - array['like_{}_sum_{}'.format(pdg_codes[1], plane)]
@@ -300,10 +291,10 @@ class caloLikelihood(object):
         array['log_like_ratio'] = array['log_like_ratio_0'] + array['log_like_ratio_1'] + array['log_like_ratio_2']
         array['log_like_ratio_01'] = array['log_like_ratio_0'] + array['log_like_ratio_1']
 
-    def addCalorimetryVariablesFromLLRTable(self, array, quality_masks_planes=None, cali=False):
+    def addCalorimetryVariablesFromLLRTable(self, array, quality_masks_planes=None):
         assert hasattr(self, 'lookup_table_llr')
         for plane_num in [0, 1, 2]:
-            dedx_values, parameters_values, starts, stops = self.prepareDedxWholeDataset(array, plane_num, cali=False)
+            dedx_values, parameters_values, starts, stops = self.prepareDedxWholeDataset(array, plane_num)
             aux_llr = self.logLikelihoodRatioOneHit(plane_num, dedx_values, parameters_values)
             out_llr = awkward.JaggedArray(content=aux_llr,
                                        starts=starts,
@@ -336,6 +327,7 @@ class caloLikelihood(object):
     def produceLabelParameters(self,
                                plane_num,
                                parameters_value,
+                               no_plane=False,
                                without_space=False):
         # label = 'plane {}'.format(plane_num)
         label = ''
@@ -348,38 +340,47 @@ class caloLikelihood(object):
                 self.parameters_bin_edges[plane_num][i][parameter_bin],
                 parameter_name,
                 self.parameters_bin_edges[plane_num][i][parameter_bin + 1])
-            if i == 0:
+            if i == 0 and len(parameters_value) != 1:
                 label += ', '
 
-        if plane_num == 0:
-            label += '\nFirst Induction plane'
-        elif plane_num == 1:
-            label += '\nSecond Induction plane'
-        elif plane_num == 2:
-            label += '\nCollection plane'
+        if no_plane is False:
+            if plane_num == 0:
+                label += '\nFirst Induction plane'
+            elif plane_num == 1:
+                label += '\nSecond Induction plane'
+            elif plane_num == 2:
+                label += '\nCollection plane'
         if without_space:
             label = label.replace(' ', '_')
             label = label.replace('_', '')
+            label = label.replace(',', '_')
+            label = label.replace('<', '_')
+            label = label.replace('.', '')
+            label = label.replace('\\', '')
+            label = label.replace('$', '')
         return label
 
-    def plotLookUpDedxMC(self, plane_num, pdg_code, parameters_value, label='mc', **kwargs):
+    def plotLookUpDedxMC(self, plane_num, pdg_code, parameters_value, label='mc', axis_label='dedx', **kwargs):
         bin_contents = self.lookupDedxMC(plane_num, pdg_code, parameters_value)
 
         if label is None:
             label = 'pdg {}, '.format(pdg_code)
             label += self.produceLabelParameters(plane_num, parameters_value)
 
-        plt.xlabel('dE/dx [MeV/cm]')
-        plt.ylabel('Probability density [1/(MeV/cm)]')
+        if axis_label == 'dedx':
+            plt.xlabel('dE/dx [MeV/cm]')
+            plt.ylabel('Probability density [1/(MeV/cm)]')
+        elif axis_label == 'dqdx':
+            plt.xlabel('dQ/dx [ADC/cm]')
+            plt.ylabel('Probability density [1/(ADC/cm)]')
         plt.plot(self.dedx_bin_edges[plane_num][:-1],
                  bin_contents,
                  ds='steps-post',
                  label=label, **kwargs)
         return bin_contents
 
-    def plotLookUpDedxMCfancy(self, plane_num, pdg_code, parameters_value, label='mc', title_left='Simulated tracks\n', add_to_title=None, **kwargs):
-        bin_contents = self.plotLookUpDedxMC(plane_num, pdg_code, parameters_value, label, **kwargs)
-        plt.ylim(bottom=0)
+    def plotLookUpDedxMCfancy(self, plane_num, pdg_code, parameters_value, label='mc', title_left='Simulated tracks\n', add_to_title=None, axis_label='dedx', **kwargs):
+        bin_contents = self.plotLookUpDedxMC(plane_num, pdg_code, parameters_value, label, axis_label='dedx', **kwargs)
         title_label = self.produceLabelParameters(plane_num, parameters_value)
         plt.title(title_left + title_label, loc='left')
         title_right = 'MicroBooNE In Progress'
@@ -393,20 +394,26 @@ class caloLikelihood(object):
                      plane_num,
                      data_selection,
                      parameters_value,
-                     label='data', **kwargs):
+                     label='data',
+                     axis_label='dedx',
+                     **kwargs):
         bin_contents = self.lookupDedxData(plane_num, data_selection,
                                            parameters_value)
-
         if label is None:
             label = '{}, '.format(data_selection)
             label += self.produceLabelParameters(plane_num, parameters_value)
 
-        plt.xlabel('dE/dx [MeV/cm]')
-        plt.ylabel('Probability density [1/(MeV/cm)]')
+        if axis_label == 'dedx':
+            plt.xlabel('dE/dx [MeV/cm]')
+            plt.ylabel('Probability density [1/(MeV/cm)]')
+        elif axis_label == 'dqdx':
+            plt.xlabel('dQ/dx [ADC/cm]')
+            plt.ylabel('Probability density [1/(ADC/cm)]')
         plt.plot(self.dedx_bins_centers[plane_num],
                  bin_contents,
                  'k.',
                  label='data', **kwargs)
+        plt.ylim(bottom=0)
         return bin_contents
 
     def plotLookUpDedxDataMC(self,
@@ -414,6 +421,7 @@ class caloLikelihood(object):
                        pdg_code,
                        data_selection,
                        parameters_value,
+                       axis_label='dedx',
                        add_to_title=None):
         fig, ax = plt.subplots(ncols=1,
                                nrows=2,
@@ -432,6 +440,10 @@ class caloLikelihood(object):
                                               label='data')
         plt.ylim(bottom=0)
         plt.xlabel('')
+        if axis_label == 'dedx':
+            plt.ylabel('Probability density [1/(MeV/cm)]')
+        elif axis_label == 'dqdx':
+            plt.ylabel('Probability density [1/(ADC/cm)]')
         label = self.produceLabelParameters(plane_num, parameters_value)
         plt.title('Cosmic ray candidates\n' + label, loc='left')
         title_right = 'MicroBooNE In Progress\n'
@@ -450,7 +462,10 @@ class caloLikelihood(object):
             self.dedx_bin_edges[plane_num][-1]
         ], np.ones(2), 'r--')
         plt.ylim(bottom=0)
-        plt.xlabel('dE/dx [MeV/cm]')
+        if axis_label == 'dedx':
+            plt.xlabel('dE/dx [MeV/cm]')
+        elif axis_label == 'dqdx':
+            plt.xlabel('dQ/dx [ADC/cm]')
         plt.ylabel('Data/Simulation')
 
     def setCalibrationFunction(self,
@@ -524,7 +539,7 @@ class caloLikelihood(object):
             if self.n_calibration_parameters == 1:
                 plt.plot(mu_centers[0], likelihood_values, '.', label=label)
                 plt.plot(min_mu, likelihood_function(min_mu, *likelihood_args), 'o',
-                             label='best fit $\mu$ = {:.2f}'.format(min_mu[0]))
+                             label='best fit $\mu$ = {:.3g}'.format(min_mu[0]))
                 plt.legend(loc='best', frameon=False)
                 plt.xlabel("Scale factor")
                 plt.ylabel("Negative log likelihood")
@@ -581,9 +596,12 @@ class caloLikelihood(object):
                                 )
             if save_plot:
                 plt.savefig(plot_folder + self.produceLabelParameters(
-                    plane_num, parameters_bin_center, without_space=True) +
+                    plane_num, parameters_bin_center, no_plane=True, without_space=True) +
                             '.png',
                             dpi=250)
+                plt.savefig(plot_folder + self.produceLabelParameters(
+                    plane_num, parameters_bin_center, no_plane=True, without_space=True) +
+                            '.pdf')
                 plt.close()
             calibrations.append(aux)
 
@@ -611,14 +629,21 @@ class caloLikelihood(object):
         plt.xlabel(self.parameters_legend_names[plane][0])
         plt.ylabel('Correction factor')
         plt.title('dE/dx correction factor\nACPT track candidates', loc='left')
-        plt.title('MicroBooNE In Progress\n\n', loc='right')
+        plt.title('MicroBooNE In Progress', loc='right')
         plt.tight_layout()
 
-    def plotCalibration2d(self, plane):
+    def plotCalibration2d(self, plane, annotated=False):
         assert len(self.parameters[plane]) == 2
         n_bins = self.parameters_num_bins[plane]
         table_reshaped = self.calibration_table[plane].reshape(n_bins)
         plt.pcolormesh(*self.parameters_bin_edges[plane][::-1], table_reshaped)
+        bin_centers = self.parameters_bin_centers[plane]
+        print(n_bins, bin_centers)
+        if annotated:
+            for i in range(n_bins[0]):
+                for j in range(n_bins[1]):
+                    text = plt.text(bin_centers[1][j], bin_centers[0][i], "{:.3g}".format(table_reshaped[i, j]),
+                                   ha="center", va="center", color="k")
         plt.colorbar()
         plt.xlabel(self.parameters_legend_names[plane][1])
         plt.ylabel(self.parameters_legend_names[plane][0])
@@ -832,5 +857,6 @@ class caloLikelihood(object):
 
     def save(self, filename):
         f = open(filename, 'wb')
-        pickle.dump(self.__dict__, f)
+        aux_dict_out = dict((key,value) for key, value in self.__dict__.items() if 'array' not in key)
+        pickle.dump(aux_dict_out, f)
         f.close()

@@ -1,5 +1,8 @@
 import numpy as np
-import awkward
+from scipy.interpolate import interpn
+
+import uproot, awkward
+from calo_likelihood import caloLikelihood
 
 detector_x = [-1.55, 254.8]
 detector_y = [-115.53, 117.47]
@@ -45,7 +48,7 @@ def clip_rr(array):
                                                 stops=array['rr'+plane].stops,
                                                 content=new_content)
 
-def polar_angles(array, dir_x, dir_y, dir_z, plane):
+def polar_angles(array, dir_x, dir_y, dir_z, plane, prefix=''):
     if plane == 0:
         dir_y_prime = array[dir_y] * (1/2)           + array[dir_z] * (np.sqrt(3)/2)
         dir_z_prime = array[dir_y] * (-np.sqrt(3)/2) + array[dir_z] * (1/2)
@@ -61,20 +64,22 @@ def polar_angles(array, dir_x, dir_y, dir_z, plane):
     plane_names = {0: '_u', 1: '_v', 2: '_y'}
     plane_name = plane_names[plane]
 
-    array['theta_x'+plane_name] = np.arccos(dir_x_prime)
-    array['abs_theta_x'+plane_name] = np.arccos(np.abs(dir_x_prime))
-    array['theta_yz'+plane_name] = np.arctan2(dir_y_prime, dir_z_prime)
-    array['abs_theta_yz'+plane_name] = np.arctan2(np.abs(dir_y_prime), np.abs(dir_z_prime))
-
-    array['theta_y'+plane_name] = np.arccos(dir_y_prime)
-    array['abs_theta_y'+plane_name] = np.arccos(np.abs(dir_y_prime))
-    array['theta_xz'+plane_name] = np.arctan2(dir_x_prime, dir_z_prime)
-    array['abs_theta_xz'+plane_name] = np.arctan2(np.abs(dir_x_prime), np.abs(dir_z_prime))
-
-    array['theta_z'+plane_name] = np.arccos(dir_z_prime)
-    array['abs_theta_z'+plane_name] = np.arccos(np.abs(dir_z_prime))
-    array['theta_yx'+plane_name] = np.arctan2(dir_y_prime, dir_x_prime)
-    array['abs_theta_yx'+plane_name] = np.arctan2(np.abs(dir_y_prime), np.abs(dir_x_prime))
+    # array[prefix+'theta_x'+plane_name] = np.arccos(dir_x_prime)
+    # array[prefix+'abs_theta_x'+plane_name] = np.arccos(np.abs(dir_x_prime))
+    # array[prefix+'theta_yz'+plane_name] = np.arctan2(dir_y_prime, dir_z_prime)
+    # array[prefix+'abs_theta_yz'+plane_name] = np.arctan2(np.abs(dir_y_prime), np.abs(dir_z_prime))
+    #
+    # array[prefix+'theta_y'+plane_name] = np.arccos(dir_y_prime)
+    # array[prefix+'abs_theta_y'+plane_name] = np.arccos(np.abs(dir_y_prime))
+    # array[prefix+'theta_xz'+plane_name] = np.arctan2(dir_x_prime, dir_z_prime)
+    # array[prefix+'abs_theta_xz'+plane_name] = np.arctan2(np.abs(dir_x_prime), np.abs(dir_z_prime))
+    #
+    array[prefix+'theta_z'+plane_name] = np.arccos(dir_z_prime)
+    array[prefix+'abs_theta_z'+plane_name] = np.arccos(np.abs(dir_z_prime))
+    # array[prefix+'theta_xy'+plane_name] = np.arctan2(dir_x_prime, dir_y_prime)
+    array[prefix+'theta_yx'+plane_name] = np.arctan2(dir_y_prime, dir_x_prime)
+    array[prefix+'abs_theta_xy'+plane_name] = np.arctan2(np.abs(dir_x_prime), np.abs(dir_y_prime))
+    array[prefix+'abs_theta_yx'+plane_name] = np.pi/2 - array[prefix+'abs_theta_xy'+plane_name]
 
 def distance3d(array, point1, point2, name_out, trailing_part1='', trailing_part2=''):
     point1_x = array[point1 + '_x' + trailing_part1]
@@ -148,6 +153,97 @@ def hit_distance_from_start(array):
                                           (array['y'+plane]-array['trk_sce_start_y'])**2 +
                                           (array['z'+plane]-array['trk_sce_start_z'])**2)
 
+def mask_far_hits(array, distance=100):
+    for plane in ['_u', '_v', '_y']:
+        array['far_hits'+plane] = (array['dist_from_start'+plane] >= 0) & (array['dist_from_start'+plane] <= distance)
+
 def norm_direction_vector(array):
     for plane in ['_u', '_v', '_y']:
         array['norm_dir'+plane] = np.sqrt(array['dir_z'+plane]**2 + array['dir_x'+plane]**2 + array['dir_y'+plane]**2)
+
+def muon_momentum_consistency(array):
+    array['trk_muon_mom_consistency'] = (array['trk_mcs_muon_mom']-array['trk_range_muon_mom'])/array['trk_range_muon_mom']
+
+def fixTuneWeights(array):
+    if hasattr(array, "columns"):
+        list_to_check = array.columns
+    elif hasattr(array, "keys"):
+        list_to_check = array.keys()
+    if 'weightTune' in list_to_check:
+        array['weightTune'][array['weightTune'] <= 0] = 1.
+        array['weightTune'][np.isinf(array['weightTune'])] = 1.
+        array['weightTune'][array['weightTune'] > 100] = 1.
+        array['weightTune'][np.isnan(array['weightTune']) == True] = 1.
+    if 'weightSplineTimesTune' in list_to_check:
+        array['weightSplineTimesTune'][array['weightSplineTimesTune'] <= 0] = 1.
+        array['weightSplineTimesTune'][np.isinf(array['weightSplineTimesTune'])] = 1.
+        array['weightSplineTimesTune'][array['weightSplineTimesTune'] > 100] = 1.
+        array['weightSplineTimesTune'][np.isnan(array['weightSplineTimesTune']) == True] = 1.
+
+# invert Recombination Modified Box Model to get dE/dx from dQ/dx
+# argon density [g/cm^3]
+rho = 1.396
+# electric field [kV/cm]
+efield = 0.273
+# ionization energy [MeV/e]
+Wion = 23.6*(10**(-6))
+fModBoxA = 0.93
+fModBoxB = 0.212
+
+adc2e = [232, 249, 243.7]
+
+def adc2dedx_ModBoxInverse(dqdx, plane, E_field=0.273):
+    Beta    = fModBoxB / (rho * E_field)
+    Alpha   = fModBoxA
+    # dEdx = (exp(Beta * Wion * dQdx ) - Alpha) / Beta
+    dedx = (np.exp(Beta * Wion * dqdx  * adc2e[plane]) - Alpha) / Beta
+    # dedx = (np.exp(fModBoxB * Wion * dqdx * adc2e[plane] ) - fModBoxA) / fModBoxB
+    return dedx
+
+def scale_calibration(mu, dedx):
+    return dedx * mu[0]
+
+def recalibrate(array, filename='/home/nic/Dropbox/MicroBooNE/bnb_nue_analysis/calorimetry_likelihood/dumped_objects/calibration_pitch.dat'):
+    caloLikelihood_cali = caloLikelihood(None)
+    caloLikelihood_cali.load(filename)
+    for plane_num, plane in enumerate(['u', 'v', 'y']):
+        array['dqdx_{}_cali'.format(plane)] = (caloLikelihood_cali.calibrateDedxExternal(array, plane_num)* (array['is_hit_montecarlo_{}'.format(plane)]) + array['dqdx_{}'.format(plane)] * ~array['is_hit_montecarlo_{}'.format(plane)])
+        array['dedx_{}_cali'.format(plane)] = adc2dedx_ModBoxInverse(array['dqdx_{}_cali'.format(plane)], plane_num)
+
+def add_norm_variable(array, var, scale=100):
+    array[var+'_n'] = 2/np.pi*np.arctan(array[var]/scale)
+
+def compute_pid(array, filename='/home/nic/Dropbox/MicroBooNE/bnb_nue_analysis/calorimetry_likelihood/dumped_objects/proton_muon_lookup.dat'):
+    caloLikelihood_pid = caloLikelihood(None)
+    caloLikelihood_pid.load(filename)
+    selection_planes = [array['first_last_hit_mask_'+plane] for plane in ['u', 'v', 'y']]
+    caloLikelihood_pid.addCalorimetryVariablesFromLLRTable(array, selection_planes)
+    add_norm_variable(array, 'llr_012')
+
+def median_dedx(array):
+    for plane in ['_u', '_v', '_y']:
+        aux_array = array['dedx'+plane][array['dist_from_start'+plane]<4]
+        out_array = []
+        for i in aux_array:
+            if len(i) == 0:
+                out_array.append(-np.inf)
+            else:
+                out_array.append(np.median(i))
+        array['dedx_median_4'+plane] = np.array(out_array)
+
+def transformCoordinatesToSCE(x, y, z):
+    x_new = 2.50 - (2.50/2.56)*(x/100.0)
+    y_new = (2.50/2.33)*((y/100.0)+1.165)
+    z_new = (10.0/10.37)*(z/100.0)
+    return x_new, y_new, z_new
+
+def EfieldLoader(file_map = '/home/nic/Dropbox/MicroBooNE/bnb_nue_analysis/efield/SCEoffsets_dataDriven_combined_bkwd_Jan18.root'):
+    out_map = uproot.open(file_map)
+    E = np.sqrt( (out_map['hEx'].numpy()[0] + 0.2739)**2 + out_map['hEy'].numpy()[0] **2 + out_map['hEz'].numpy()[0] **2)
+    bin_edges = out_map['hEx'].numpy()[1][0]
+    bin_centers = [(bin_edge[1:] + bin_edge[:-1])/2 for bin_edge in bin_edges]
+
+    def E_interpolated(xi):
+        return interpn(bin_centers, E, xi, bounds_error=False, fill_value=np.nan)
+
+    return E, bin_edges, bin_centers, E_interpolated
