@@ -1,4 +1,5 @@
 import functools, operator
+from collections import Sequence
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
@@ -22,11 +23,11 @@ class plotter():
                 array['weight'] = array[branch_weights_name]
             array['weight'] = array['weight']*self.scale_factors[name]
 
-    def plot_pot_normalised_var(self, variable, binning, categories, function='flatten', additional_selection=None, prediction_datasets=['bnb_dirt', 'bnb_nu', 'bnb_nue'], title=None, xlabel=None, log=False, subtracted=False, onebin=False, area_norm=False, legend=True):
-        if legend:
-            figsize = (5.1*1.6, 5)
+    def plot_pot_normalised_var(self, variable, binning, categories, function='flatten', additional_selection=None, prediction_datasets=['bnb_dirt', 'bnb_nu', 'bnb_nue'], title=None, xlabel=None, log=False, subtracted=False, onebin=False, area_norm=False, text_details=True, legend='out'):
+        if legend == 'out':
+            figsize = (5.1*1., 5)
         else:
-            figsize = (5.1*1.3, 5)
+            figsize = (5.1*1.2, 5)
         fig, ax = plt.subplots(ncols=1,
                                nrows=2,
                                figsize=figsize,
@@ -193,12 +194,11 @@ class plotter():
                        fmt="k.")
 
         # setting title and labels
+        title_final = r'MicroBooNE {:.2f}$\times 10^{{19}}$ POT'.format(self.pot_beam_on/1e19)
         if title is not None:
-            title = (title + '\nMicroBooNE Preliminary')
-        else:
-            title = 'MicroBooNE Preliminary'
-        ax[0].set_title(title, loc='left')
-        ax[0].set_title('BNB {:.3f}e19 POT'.format(self.pot_beam_on/1e19), loc='right')
+            title_final = (title + title_final)
+            
+        ax[0].set_title(title_final, loc='left')
         ax[0].autoscale()
         # chi2
         if subtracted is False:
@@ -212,10 +212,13 @@ class plotter():
         # if np.isinf(chi2):
         #     import pdb; pdb.set_trace()
         ndof = (chi2_errors != 0).sum()
-        aux_string = r"$X^2$ = {:.1f}, ndf = {:.0f}".format(chi2, ndof)
-        if area_norm:
-            aux_string += "\nArea normalised\nScaled by {:.3g}".format(additional_scale)
-        ax[0].text(x=0.6, y=0.75,
+        aux_string = ""
+        if text_details:
+            aux_string += r"$X^2$ = {:.1f}, ndf = {:.0f}".format(chi2, ndof) 
+            if area_norm:
+                aux_string += "\nArea normalised"
+                aux_string += "\nScaled by {:.3g}".format(additional_scale)
+        ax[0].text(x=0.6, y=0.68,
                    s=aux_string,
                    transform=ax[0].transAxes)
 
@@ -240,8 +243,11 @@ class plotter():
 
         if legend:
             handles, labels = ax[0].get_legend_handles_labels()
-            ax[0].legend(handles[::-1], labels[::-1], bbox_to_anchor=(1.04,1), loc="upper left")
-
+            if legend == 'in':
+                ax[0].legend(handles[::-1], labels[::-1], frameon=False, loc='best')
+            elif legend == 'out':
+                ax[0].legend(handles[::-1], labels[::-1], bbox_to_anchor=(1.04,1), loc="upper left")
+        
         ax[1].set_ylim(0.5, 1.5)
         if subtracted is False:
             ax[1].set_ylabel('DATA/PREDICTION')
@@ -345,10 +351,10 @@ class plotter():
         ax.legend(handles[::-1], labels[::-1], bbox_to_anchor=(1.04,1), loc="upper left")
         plt.tight_layout()
 
-    def plot2d(self, dataset_name, variables, binning, additional_selection=None, title=None, labels=None, log=False, density=True):
+    def plot2d(self, dataset_names, variables, binning, additional_selection=None, title=None, labels=None, log=False, density=True, conditional=False):
         plt.figure()
         ax = plt.gca()
-        if dataset_name == 'beam_subtracted':
+        if dataset_names == 'beam_subtracted':
             beam_on = self.arrays['beam_on']
             if additional_selection is not None:
                 additional_selection_mask_on = additional_selection(beam_on)
@@ -380,49 +386,64 @@ class plotter():
             prediction_x = np.concatenate([prediction_x_on, prediction_x_off])
             prediction_y = np.concatenate([prediction_y_on, prediction_y_off])
             weights = np.concatenate([weights_on, weights_off])
-            # import pdb; pdb.set_trace();
         else:
-            array = self.arrays[dataset_name]
+            if not isinstance(dataset_names, Sequence):
+                dataset_names = [dataset_names]
+            aux_prediction_x = []
+            aux_prediction_y = []
+            aux_weights = []
+            for dataset_name in dataset_names:
+                array = self.arrays[dataset_name]
 
-            if additional_selection is not None:
-                additional_selection_mask = additional_selection(array)
-            else:
-                additional_selection_mask = (array[variables[0]] == array[variables[0]])
+                if additional_selection is not None:
+                    additional_selection_mask = additional_selection(array)
+                else:
+                    additional_selection_mask = (array[variables[0]] == array[variables[0]])
 
-            partial_prediction_x = array[variables[0]][additional_selection_mask]
-            partial_prediction_y = array[variables[1]][additional_selection_mask]
+                partial_prediction_x = array[variables[0]][additional_selection_mask]
+                partial_prediction_y = array[variables[1]][additional_selection_mask]
 
-            element_mask = (partial_prediction_x == array[variables[0]][additional_selection_mask])
-            prediction_x = partial_prediction_x.flatten()
-            prediction_y = partial_prediction_y.flatten()
-            extended_weights = (array['weight'] * (array[variables[0]] == array[variables[0]]))
-            weights = extended_weights[additional_selection_mask][element_mask].flatten()
-
-        # x = array[variables[0]][additional_selection_mask].flatten()
-        # y = array[variables[1]][additional_selection_mask].flatten()
+                element_mask = (partial_prediction_x == array[variables[0]][additional_selection_mask])
+                aux_prediction_x.append(partial_prediction_x.flatten())
+                aux_prediction_y.append(partial_prediction_y.flatten())
+                extended_weights = (array['weight'] * (array[variables[0]] == array[variables[0]]))
+                aux_weights.append(extended_weights[additional_selection_mask][element_mask].flatten())
+            prediction_x = np.concatenate(aux_prediction_x)
+            prediction_y = np.concatenate(aux_prediction_y)
+            weights = np.concatenate(aux_weights)
+        
+        hist2d, edges_x, edges_y = np.histogram2d(prediction_x, prediction_y,
+                       bins=(binning[0], binning[3]),
+                       range=( (binning[1], binning[2]), (binning[4], binning[5])),
+                       weights=weights,
+                       density=density
+                       )
+        if conditional:
+            hist1d, _ = np.histogram(prediction_x,
+                           bins=binning[0],
+                           range=(binning[1], binning[2]),
+                           weights=weights * ((prediction_y>binning[4])&(prediction_y<binning[5])),
+                           density=density
+                           )
+            hist_out = (hist2d/(hist1d[:,None])).T
+        else:
+            hist_out = hist2d.T
         if log:
-            plt.hist2d(prediction_x, prediction_y,
-                       bins=(binning[0], binning[3]),
-                       range=( (binning[1], binning[2]), (binning[4], binning[5])),
-                       norm=LogNorm(),
-                       weights=weights,
-                       density=density,
-                       )
+            plt.pcolormesh(edges_x, edges_y, hist_out, norm=LogNorm())
         else:
-            plt.hist2d(prediction_x, prediction_y,
-                       bins=(binning[0], binning[3]),
-                       range=( (binning[1], binning[2]), (binning[4], binning[5])),
-                       weights=weights,
-                       density=density,
-                       )
+            plt.pcolormesh(edges_x, edges_y, hist_out)
+            
         plt.colorbar()
 
         # setting titles etc.
-        if title is not None:
-            title = (title + '\nMicroBooNE Preliminary')
-        else:
-            title = 'MicroBooNE Preliminary'
-        ax.set_title(title, loc='left')
+        
+#         if title is not None:
+#             title = (title + '\nMicroBooNE Preliminary')
+#         else:
+#             title = 'MicroBooNE Preliminary'
+        ax.set_title(title+'\n', loc='left')
+        ax.set_title('MicroBooNE Preliminary   ', loc='right')
+        
         ax.autoscale()
 
         if labels is None:

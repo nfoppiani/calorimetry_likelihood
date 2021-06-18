@@ -328,7 +328,8 @@ class caloLikelihood(object):
                                plane_num,
                                parameters_value,
                                no_plane=False,
-                               without_space=False):
+                               without_space=False,
+                               fancy=False):
         # label = 'plane {}'.format(plane_num)
         label = ''
         this_parameters_bins = self.findParameterBin(plane_num,
@@ -336,20 +337,35 @@ class caloLikelihood(object):
         for i, (parameter_name, parameter_bin) in enumerate(
                 zip(self.parameters_legend_names[plane_num],
                     this_parameters_bins)):
-            label += '{:.2f} < {} < {:.2f}'.format(
-                self.parameters_bin_edges[plane_num][i][parameter_bin],
-                parameter_name,
+            if not fancy:
+                label += '{:.2f} < {} < {:.2f}'.format(
+                    self.parameters_bin_edges[plane_num][i][parameter_bin],
+                    parameter_name,
                 self.parameters_bin_edges[plane_num][i][parameter_bin + 1])
+            else:
+                label += '{:.2g} < {} < {:.2g}'.format(
+                    self.parameters_bin_edges[plane_num][i][parameter_bin],
+                    parameter_name,
+                self.parameters_bin_edges[plane_num][i][parameter_bin + 1])
+                label += ' cm'
             if i == 0 and len(parameters_value) != 1:
                 label += ', '
-
+        if fancy:
+            label = label.replace('_u', '').replace('_v', '').replace('_y', '')
+            label = label.replace('rr', 'residual range')
+            label = label.replace('pitch', 'local pitch')
+            label = label.replace(', ', '\n')
+            
         if no_plane is False:
             if plane_num == 0:
-                label += '\nFirst Induction plane'
+#                 label += '\nfirst Induction plane'
+                label += '\nU plane'
             elif plane_num == 1:
-                label += '\nSecond Induction plane'
+#                 label += '\nsecond Induction plane'
+                label += '\nV plane'
             elif plane_num == 2:
-                label += '\nCollection plane'
+#                 label += '\ncollection plane'
+                label += '\nY plane'
         if without_space:
             label = label.replace(' ', '_')
             label = label.replace('_', '')
@@ -387,7 +403,7 @@ class caloLikelihood(object):
         if add_to_title is not None:
             title_right = (add_to_title + '\n' + title_right)
         plt.title(title_right, loc='right')
-        plt.legend()
+        plt.legend(frameon=False)
         return bin_contents
 
     def plotLookUpDedxData(self,
@@ -751,7 +767,7 @@ class caloLikelihood(object):
 
         score = self.array[variable][selection_mask]
         true_label = np.abs(self.array[self.pdgcode_var][selection_mask])
-        fpr, tpr, _ = roc_curve(true_label, score, pos_label=pdg_codes[0])
+        fpr, tpr, thresholds = roc_curve(true_label, score, pos_label=pdg_codes[1])
         roc_auc = auc(fpr, tpr)
         if roc_auc < 0.5:
             tpr = 1 - tpr
@@ -760,20 +776,23 @@ class caloLikelihood(object):
         if plot:
             if variable_label is None:
                 variable_label = variable
-            plt.plot(fpr, tpr, lw=2, label='{}, area = {:.2f}'.format(variable_label, roc_auc))
+            if 'llr' in variable:
+                plt.plot(fpr, tpr, lw=2, label='{}, AUC = {:.2f}'.format(variable_label, roc_auc))
+            else:
+                plt.plot(fpr, tpr, '--', lw=2, label='{}, AUC = {:.2f}'.format(variable_label, roc_auc))
             plt.xlim([0.0, 1.0])
             plt.ylim([0.0, 1.05])
             plt.xlabel('False Positive Rate')
             plt.ylabel('True Positive Rate')
-            plt.legend(loc="lower right")
+            plt.legend(loc="lower right", frameon=False)
             plt.title('MicroBooNE In Progress', loc='right')
-        return roc_auc
+        return roc_auc, fpr, tpr, thresholds
 
     def auc1D(self, variable, pdg_codes, selection_function, parameter_name, parameter_bin_edges, legend_label, quality_mask=True):
         auc_values = []
         for parameter_low, parameter_high in zip(parameter_bin_edges[:-1], parameter_bin_edges[1:]):
             additional_selection_mask = selection_function(self.array, parameter_name, (parameter_low, parameter_high))
-            auc_values.append(self.rocCurve(variable, pdg_codes, quality_mask=quality_mask, additional_selection_mask=additional_selection_mask))
+            auc_values.append(self.rocCurve(variable, pdg_codes, quality_mask=quality_mask, additional_selection_mask=additional_selection_mask)[0])
 
         parameter_bin_centers = (parameter_bin_edges[:-1] + parameter_bin_edges[1:])/2
         if 'llr' in variable:

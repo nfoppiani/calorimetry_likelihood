@@ -1,7 +1,8 @@
 import numpy as np
 from scipy.interpolate import interpn
 
-import uproot, awkward
+import uproot
+import awkward
 from calo_likelihood import caloLikelihood
 
 detector_x = [-1.55, 254.8]
@@ -21,6 +22,11 @@ def overlay_purity(array):
 def abs_pitch(array):
     for plane in ['_u', '_v', '_y']:
         array['abs_pitch'+plane] = np.abs(array['pitch'+plane])
+
+def track_dir_pitch(dir_y, dir_z):
+    return (0.3/(dir_y * (-np.sqrt(3)/2) + dir_z * (1/2)),
+            0.3/(dir_y * (np.sqrt(3)/2) + dir_z * (1/2)),
+            0.3/dir_z)
 
 def get_pitch(array, dir_y, dir_z, plane):
     if plane == 0:
@@ -210,6 +216,11 @@ def recalibrate(array, filename='/home/nic/Dropbox/MicroBooNE/bnb_nue_analysis/c
         array['dqdx_{}_cali'.format(plane)] = (caloLikelihood_cali.calibrateDedxExternal(array, plane_num)* (array['is_hit_montecarlo_{}'.format(plane)]) + array['dqdx_{}'.format(plane)] * ~array['is_hit_montecarlo_{}'.format(plane)])
         array['dedx_{}_cali'.format(plane)] = adc2dedx_ModBoxInverse(array['dqdx_{}_cali'.format(plane)], plane_num)
 
+def add_dqdx_in_electrons(array):
+    for plane_num, plane in enumerate(['u', 'v', 'y']):
+        array[f'dqdx_{plane}_el'] = array[f'dqdx_{plane}'] * adc2e[plane_num]
+        array[f'dqdx_{plane}_el_cali'] = array[f'dqdx_{plane}_cali'] * adc2e[plane_num]
+        
 def add_norm_variable(array, var, scale=100):
     array[var+'_n'] = 2/np.pi*np.arctan(array[var]/scale)
 
@@ -220,6 +231,12 @@ def compute_pid(array, filename='/home/nic/Dropbox/MicroBooNE/bnb_nue_analysis/c
     caloLikelihood_pid.addCalorimetryVariablesFromLLRTable(array, selection_planes)
     add_norm_variable(array, 'llr_012')
 
+def load_lookup_table(calo_likelihood_object, filename='/home/nic/Dropbox/MicroBooNE/bnb_nue_analysis/calorimetry_likelihood/dumped_objects/proton_muon_lookup.dat'):
+    caloLikelihood_pid = caloLikelihood(None)
+    caloLikelihood_pid.load(filename)
+    calo_likelihood_object.lookup_table_llr = caloLikelihood_pid.lookup_table_llr
+    calo_likelihood_object.lookup_tables = caloLikelihood_pid.lookup_tables
+    
 def median_dedx(array):
     for plane in ['_u', '_v', '_y']:
         aux_array = array['dedx'+plane][array['dist_from_start'+plane]<4]

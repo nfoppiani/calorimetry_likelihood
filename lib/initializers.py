@@ -33,6 +33,7 @@ def initialisation_for_caloriemtry_data_mc(array):
         polar_angles(array, 'trk_dir_x', 'trk_dir_y', 'trk_dir_z', i, prefix='trk_')
         array['trk_pitch'+plane] = np.abs(get_pitch(array, 'trk_dir_y', 'trk_dir_z', i))
     recalibrate(array)
+    add_dqdx_in_electrons(array)
     
 
 def initialisation_for_calorimetry_shower(array):

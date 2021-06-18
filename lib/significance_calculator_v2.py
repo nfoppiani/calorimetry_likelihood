@@ -5,6 +5,8 @@ import uproot
 import mpmath
 from likelihoods import LEff, LEff_v
 import operator
+import scipy as sp
+import pandas as pd
 
 
 class significanceCalculator(object):
@@ -86,6 +88,12 @@ class significanceCalculator(object):
                 aux_array['this_weight'] = (aux_array['evt'] == aux_array['evt']) * dict_pot_scaling[sample_name]
             self.dict_dataset[sample_name] = aux_array
 
+    def setDataFromCSV(self, dict_tfile_names, weight_variable='plot_weight'):
+        self.dict_dataset = {}
+        for sample_name, file_name in dict_tfile_names.items():
+            self.dict_dataset[sample_name] = pd.read_csv(file_name)
+            self.dict_dataset[sample_name].loc[:, 'this_weight'] = self.dict_dataset[sample_name][weight_variable]
+            
     def setVariableOfInterest(self, bin_edges, reco_energy, true_energy, true_pdg):
         self.bin_edges = bin_edges
         self.reco_energy = reco_energy
@@ -95,9 +103,9 @@ class significanceCalculator(object):
 
         for array in self.dict_dataset.values():
             if true_energy not in array.keys():
-                array[true_energy] = 0*(array['evt'] == array['evt'])
+                array[true_energy] = 0*(array['this_weight'] == array['this_weight'])
             if true_pdg not in array.keys():
-                array[true_pdg] = 0*(array['evt'] == array['evt'])
+                array[true_pdg] = 0*(array['this_weight'] == array['this_weight'])
 
     def setCovarianceMatrix(self, cov, is_cov='cov'):
         self.cov_matrix = cov
@@ -176,8 +184,10 @@ class significanceCalculator(object):
 
     def fillHistogramNueBeam(self):
         self.expected_bin_contents = {'bg': np.zeros(self.n_bin),
-                  'signal': np.zeros(self.n_bin)}
-        for array in self.dict_dataset.values():
+                  'signal': np.zeros(self.n_bin),
+                  'data': np.zeros(self.n_bin),}
+        for name, array in self.dict_dataset.items():
+
             inf_mask = ~np.isinf(array['this_weight'])
             nu_e = (np.abs(array[self.true_pdg]) == 12) & inf_mask
             non_nu_e = (np.abs(array[self.true_pdg]) != 12) & inf_mask
@@ -188,9 +198,12 @@ class significanceCalculator(object):
             aux_mean_nue, _ = np.histogram(array[self.reco_energy][nu_e],
                                           weights=array['this_weight'][nu_e],
                                           bins=self.bin_edges)
-
-            self.expected_bin_contents['bg'] += aux_mean_bg
-            self.expected_bin_contents['signal'] += aux_mean_nue
+            
+            if name == 'on':
+                self.expected_bin_contents['data'] += aux_mean_bg
+            else:
+                self.expected_bin_contents['bg'] += aux_mean_bg
+                self.expected_bin_contents['signal'] += aux_mean_nue
         self.total_bg_prediction = self.expected_bin_contents['bg']
 
     def fillHistogramLEE(self):
@@ -212,11 +225,14 @@ class significanceCalculator(object):
             self.expected_bin_contents['signal'] += aux_mean_signal
         self.total_bg_prediction = self.expected_bin_contents['bg']
 
-    def poissonLogLikelihood(self, mu, obs_bin_contents, pot_scale_factor):
+    def poissonLogLikelihood(self, mu, obs_bin_contents, pot_scale_factor, negative=False, offset=0):
         prediction = pot_scale_factor*(self.total_bg_prediction + mu*self.expected_bin_contents['signal'])
 
         likelihood_bin_by_bin = -prediction + np.where(prediction!=0, obs_bin_contents*np.log(prediction), 0)
-        return likelihood_bin_by_bin.sum(axis=-1)
+        if negative:
+            return -likelihood_bin_by_bin.sum(axis=-1) + offset
+        else:
+            return likelihood_bin_by_bin.sum(axis=-1) + offset
 
     def gaussianLogLikelihood(self, mu, obs_bin_contents, pot_scale_factor):
         prediction = pot_scale_factor*(self.total_bg_prediction + mu*self.expected_bin_contents['signal'])
@@ -230,9 +246,10 @@ class significanceCalculator(object):
         likelihood_bin_by_bin = np.where(prediction!=0, -0.5*(obs_bin_contents-prediction)**2/prediction, 0)
         return likelihood_bin_by_bin.sum(axis=-1)
 
-    def chi2WithCov(self, mu, obs_bin_contents, pot_scale_factor):
+    def chi2WithCov(self, mu, obs_bin_contents, pot_scale_factor, sensitivity=False):
         prediction = pot_scale_factor*(self.total_bg_prediction + mu*self.expected_bin_contents['signal'])
-
+        if sensitivity:
+            obs_bin_contents = pot_scale_factor*self.total_bg_prediction
         statistical_cov = np.diag(prediction)
         if self.is_cov == 'cov':
             this_cov_matrix = self.cov_matrix
@@ -290,8 +307,11 @@ class significanceCalculator(object):
         for pot_scale in pot_scale_factor:
             this_bg_pred = pot_scale*bg_pred
             this_bg_plus_signal_pred = pot_scale*bg_plus_signal_pred
-
-            if self.is_cov == 'cov':
+            
+            if not hasattr(self, 'is_cov'):
+                this_cov_matrix_bg = np.zeros([self.n_bin, self.n_bin])
+                this_cov_matrix_bg_plus_signal = this_cov_matrix_bg
+            elif self.is_cov == 'cov':
                 this_cov_matrix_bg = self.cov_matrix
                 this_cov_matrix_bg_plus_signal = self.cov_matrix
             elif self.is_cov == 'frac':
@@ -368,7 +388,7 @@ class significanceCalculator(object):
                 pot_scale_factor*(mu_1-mu_0)*signal_prediction,
                 bottom=total_bin_contents,
                 width=bin_widths,
-                label=r'oscillated nue',
+                label=f'signal : $\mu$ = {mu_1}',
                 )
 
         # plot pseudo data
@@ -457,6 +477,58 @@ class significanceCalculator(object):
         plt.tight_layout()
         return expected_significance
 
+    def testStatisticsWithData(self, mu_0, mu_1, observed_data, chi2_pdf_superimposed=True, n_toy=100000, percentage_values=[16, 50, 84], pot_scale_factor=1, n_bins=50, log=False, title=None, test_stat='pois_llr', range=None, print_numbers=True):
+
+        # plot toy experiment
+        bg_toy, bg_plus_signal_toy = self.pseudoExperiments(n_toy, pot_scale_factor)
+        toy_mu0 = bg_toy
+        test_stat_mu0 = self.ts_dict[test_stat](mu_0, mu_1, toy_mu0, pot_scale_factor)
+        expected_significance, expected_pvalues, expected_quantiles = self.significanceCalculation(test_stat_mu0, test_stat_mu1, percentage_values)
+
+        bin_contents_total, bin_edges, _ = plt.hist(
+                                             test_stat_mu0,
+                                             bins=n_bins,
+                                             range=range,
+                                             density=True,
+                                             label=r'TS distribution with toy experiments',
+                                             alpha=0.7,
+                                             histtype='stepfilled',
+                                             lw=2,
+                                             log=log,
+                                             )
+
+        # plot chi2 expected distribution
+        ndof = self.n_bin
+        chi2pdf = sp.stats.chi2(ndof)
+        x = np.linspace(chi2pdf.ppf(0.01, ndof), chi2pdf.ppf(0.99, ndof), 100)
+        plt.plot(x, chi2pdf.pdf(x), 'k-', lw=2, label=r'$\chi^2 with {} dof'.format(ndof))
+
+        # observed value
+        test_stat_observed = self.ts_dict[test_stat](mu_0, mu_1, observed_data, pot_scale_factor)
+
+        # compute pvalues
+        test_stat_pvalue = (test_stat_mu0 >= test_stat_observed).sum() / n_toy
+        chi2_pvalue = 1 - chi2pdf.cdf(test_stat_observed, ndof)
+
+        # plot observed value
+        plt.axvline(test_stat_observed, color='k', linestyle='-', label='observed with data\n' +\
+                                                                         r'p-value with $\chi^2_{}$ = {}\n'.format(ndof, chi2_pvalue) +\
+                                                                         'p-value with $toys = {}\n'.format(test_stat_pvalue))
+        
+        plt.ylabel("PDF value")
+        plt.xlabel(self.ts_labels[test_stat])
+        plt.legend(loc='best')
+        ax = plt.gca()
+        # ax.set_xlim(test_stat_mu1.mean() - 5*test_stat_mu1.std(), test_stat_mu1.mean() + 5*test_stat_mu1.std())
+        # ymax = ax.get_ylim()[1]
+        
+        # props = dict(boxstyle='round', facecolor='white', alpha=0.5, linewidth=0.5)
+        # plt.text(1.08, 0.5, textstr, transform=ax.transAxes, fontsize=10, verticalalignment='top', bbox=props)
+        if title is None:
+            title = self.selection_label + '\n' + self.label
+        plt.title(title+"\nMicroBooNE Preliminary - {:.2g} POT".format(pot_scale_factor*self.pot), loc='left')
+        plt.tight_layout()
+
     def SignificanceFunctionScaleFactors(self, mu_0, mu_1, n_toy=100000, percentage_values=[16, 50, 84], pot_scale_factors=[1], label='', title='', type='discovery', test_stat='pois_llr'):
         expectation = []
         bg_toy, bg_plus_signal_toy = self.pseudoExperiments(n_toy, pot_scale_factors)
@@ -501,5 +573,31 @@ class significanceCalculator(object):
             aux_likelihoods.append(-self.poissonLogLikelihood(mu, obs_bin_contents, pot_scale_factor) + likelihood_offset)
 
         plt.plot(mu_range, aux_likelihoods, label='POT = {:.1g} POT'.format(pot_scale_factor*self.pot))
+        plt.legend()
+        return aux_likelihoods
+    
+    def muLikelihoodShape(self, mu_range, legend_label, likelihood, is_data=True, mu_test=1, pot_scale_factor=1):
+        if is_data:
+            obs_bin_contents = self.expected_bin_contents['data']
+        else:
+            obs_bin_contents = pot_scale_factor*(self.total_bg_prediction + mu_test*self.expected_bin_contents['signal'])
+            
+        res = sp.optimize.minimize(likelihood, [1],
+                       args=(obs_bin_contents, pot_scale_factor, True),
+                       bounds=[(0, None)])
+        min_mu = res.x
+        min_likelihood = res.fun
+        minus_one_sigma = sp.optimize.brentq(likelihood, 0, min_mu,
+                       args=(obs_bin_contents, pot_scale_factor, True, -0.5 - min_likelihood))
+        plus_one_sigma = sp.optimize.brentq(likelihood, min_mu, 2,
+                       args=(obs_bin_contents, pot_scale_factor, True, -0.5 - min_likelihood))
+        print(f'{min_mu[0]:.2f}')
+        print(min_likelihood)
+        print(f'{minus_one_sigma:.2f}', f'{plus_one_sigma:.2f}')
+        aux_likelihoods = []
+        for mu in mu_range:
+            aux_likelihoods.append(self.poissonLogLikelihood(mu, obs_bin_contents, pot_scale_factor, True) - min_likelihood)
+
+        plt.plot(mu_range, aux_likelihoods, label=legend_label)
         plt.legend()
         return aux_likelihoods

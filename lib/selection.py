@@ -2,6 +2,7 @@ import numpy as np
 import uproot
 import awkward
 
+
 detector_x = [0, 256.35]
 detector_y = [-116.5, 116.5]
 detector_z = [0, 1036.8]
