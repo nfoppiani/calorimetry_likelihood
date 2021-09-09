@@ -1,24 +1,18 @@
 #include "Riostream.h"
-// #include "TString.h"
-// #include "TFile.h"
-// #include "TTree.h"
 #include <map>
 #include <iostream>
 #include <cstdlib>
 
-void slimmer_calo_mc(TString fname)
+void slimmer_calo_mc(TString dir, TString fname)
 {
   float detector_x[2] = {-1.55, 254.8};
   float detector_y[2] = {-115.53, 117.47};
   float detector_z[2] = {0.1, 1036.9};
 
   // Get old file, old tree and set top branch address
-  TString dir = "/home/nic/Desktop/MicroBooNE/calorimetry_likelihood/";
-  TString fullpath = dir + fname + "/out.root";
-  TString foutname = dir + fname + "/out_mc_skimmed.root";
+  TString input_file_path = dir + fname + ".root";
   gSystem->ExpandPathName(dir);
-  //const auto filename = gSystem->AccessPathName(dir) ? "./Event.root" : "$ROOTSYS/test/Event.root";
-  TFile oldfile(fullpath);
+  TFile oldfile(input_file_path);
   TTree *oldtree;
   oldfile.GetObject("nuselection/CalorimetryAnalyzer", oldtree);
 
@@ -39,7 +33,7 @@ void slimmer_calo_mc(TString fname)
   float trk_sce_end_z;
 
   oldtree->SetBranchAddress("backtracked_pdg", &backtracked_pdg);
-
+    
   oldtree->SetBranchAddress("trk_sce_start_x", &trk_sce_start_x);
   oldtree->SetBranchAddress("trk_sce_start_y", &trk_sce_start_y);
   oldtree->SetBranchAddress("trk_sce_start_z", &trk_sce_start_z);
@@ -49,7 +43,8 @@ void slimmer_calo_mc(TString fname)
 
 
   // Create a new file + a clone of old tree in new file
-  TFile newfile(foutname, "recreate");
+  TString output_file_path = dir + fname + "_mc_skimmed.root";
+  TFile newfile(output_file_path, "recreate");
   TDirectory *searchingfornues = newfile.mkdir("nuselection");
   searchingfornues->cd();
 
@@ -67,9 +62,9 @@ void slimmer_calo_mc(TString fname)
     oldtree->GetEntry(i);
 
     if (
-         ((backtracked_pdg == 13) ||
+         ((backtracked_pdg == 321) ||
          (backtracked_pdg == 2212) ||
-         (backtracked_pdg == -13) ||
+         (backtracked_pdg == -321) ||
          (backtracked_pdg == -2212) ||
          (backtracked_pdg == 0)) &&
          (trk_sce_start_x > (detector_x[0]+20)) &&
@@ -102,15 +97,4 @@ void slimmer_calo_mc(TString fname)
   newEventTree->Print();
 
   newfile.Write();
-}
-
-int main()
-{
-  TString filenames[1] = {"bnb_nu"};
-
-  for(int i=0; i<4; i++)
-  {
-    std::cout << filenames[i] << std::endl;
-    slimmer_calo_mc(filenames[i]);
-  }
 }

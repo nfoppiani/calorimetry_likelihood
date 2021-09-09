@@ -3,7 +3,7 @@ from scipy.interpolate import interpn
 
 import uproot
 import awkward
-from calo_likelihood import caloLikelihood
+from calorimetry_likelihood.lib.calo_likelihood import caloLikelihood
 
 detector_x = [-1.55, 254.8]
 detector_y = [-115.53, 117.47]
@@ -264,3 +264,33 @@ def EfieldLoader(file_map = '/home/nic/Dropbox/MicroBooNE/bnb_nue_analysis/efiel
         return interpn(bin_centers, E, xi, bounds_error=False, fill_value=np.nan)
 
     return E, bin_edges, bin_centers, E_interpolated
+
+def selection_for_train(array):
+    return (array['backtracked_completeness'] > 0.9) &\
+           (array['backtracked_purity'] > 0.9) &\
+           (array['start_is_fiducial']) &\
+           (array['end_is_fiducial']) &\
+           (array['non_inelastic']) &\
+           (array['trk_daughters']==0) &\
+           (array['shr_daughters']==0)
+
+def selection_for_test(array):
+    return (array['start_is_fiducial']) &\
+           (array['end_is_fiducial']) &\
+           (array['trk_daughters']==0) &\
+           (array['shr_daughters']==0)
+
+def muon_for_test(array):
+    return selection_for_test(array) & (np.abs(array['backtracked_pdg'])==13)
+
+def proton_for_test(array):
+    return selection_for_test(array) & (np.abs(array['backtracked_pdg'])==2212)
+
+def cosmic_for_test(array):
+    return selection_for_test(array) & (np.abs(array['backtracked_pdg'])==0)
+
+def selection_planes(array):
+    aux = []
+    for plane in ['_u', '_v', '_y']:
+        aux.append(array['first_last_hit_mask'+plane])
+    return aux

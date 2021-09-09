@@ -6,21 +6,13 @@ from scipy.optimize import minimize
 from sklearn.metrics import roc_curve, auc
 from math import pi
 import pickle
-
 import awkward
+from calorimetry_likelihood.lib.initializers import pdgid2name
 
 class caloLikelihood(object):
-    def __init__(self, array, quality_mask=None, quality_masks_planes=None):
-        self.array = array
-        if quality_mask is None:
-            self.quality_mask = (array == array)
-        else:
-            self.quality_mask = quality_mask
-
-        if quality_masks_planes is None:
-            self.quality_masks_planes = [array == array]*3
-        else:
-            self.quality_masks_planes = quality_masks_planes
+    def __init__(self, array=None, quality_mask=None, quality_masks_planes=None):
+        if array is not None:
+            self.setArray(array, quality_mask, quality_masks_planes)
 
         self.parameters = {}
         self.parameters_legend_names = {}
@@ -41,6 +33,18 @@ class caloLikelihood(object):
         self.lookup_tables_data = {}
 
         self.plane_dict = {'_u': 0, '_v': 1, '_y': 2}
+
+    def setArray(self, array, quality_mask=None, quality_masks_planes=None):
+        self.array = array
+        if quality_mask is None:
+            self.quality_mask = (array == array)
+        else:
+            self.quality_mask = quality_mask
+
+        if quality_masks_planes is None:
+            self.quality_masks_planes = [array == array]*3
+        else:
+            self.quality_masks_planes = quality_masks_planes
 
     def loadData(self, array_data, data_masks=None, overall_data_mask=None, overall_data_masks_planes=None):
         self.array_data = array_data
@@ -838,8 +842,11 @@ class caloLikelihood(object):
                 out_file.write('{:.3f}, '.format(elem))
         out_file.write('\n    };\n\n')
 
-    def printCplusplusLookUp(self, filename, name='PROTON_MUON', struct_name='ProtonMuonLookUpParameters', planes=[0, 1, 2]):
+    def printCplusplusLookUp(self, filename, pdg_codes, planes=[0, 1, 2]):
         assert hasattr(self, 'lookup_table_llr')
+        name=f'{pdgid2name[pdg_codes[0]].upper()}_{pdgid2name[pdg_codes[0]].upper()}', 
+        struct_name=f'{pdgid2name[pdg_codes[0]].capitalize()}{pdgid2name[pdg_codes[0]].capitalize()}LookUpParameters'
+
         out_file = open(filename, 'w')
         out_file.write('#ifndef {}_LOOKUP_H\n#define {}_LOOKUP_H\n#include <stdlib.h>\n#include <vector>\n\n'.format(name, name))
         out_file.write('namespace searchingfornues\n{\n  struct '+struct_name+'\n  {')

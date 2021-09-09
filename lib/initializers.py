@@ -1,5 +1,19 @@
-from general_functions import *
-from categorisation import *
+from calorimetry_likelihood.lib.general_functions import *
+
+pdgid2name = {
+    11: 'electron',
+    22: 'photon',
+    2212: 'proton',
+    211: 'pion',
+    13: 'muon',
+    321: 'kaon',
+    2112: 'neutron',
+    0: 'cosmic',
+}
+
+def add_pdg_categories(array):
+    for pdgid, name in pdgid2name.items():
+        array[name] = (abs(array['backtracked_pdg']) == pdgid)
 
 def initialisation_for_selection(array):
     overlay_purity(array)
@@ -16,7 +30,7 @@ def initialisation_for_caloriemtry_acpt(array):
     dir_pitch(array)
 
 
-def initialisation_for_caloriemtry_data_mc(array):
+def initialisation_for_caloriemtry_data_mc(array, need_recalibration=False):
     overlay_purity(array)
     add_pdg_categories(array)
     point_is_fiducial(array, name_in='trk_sce_start', name_out='start_is_fiducial',
@@ -32,8 +46,9 @@ def initialisation_for_caloriemtry_data_mc(array):
         polar_angles(array, 'dir_x'+plane, 'dir_y'+plane, 'dir_z'+plane, i)
         polar_angles(array, 'trk_dir_x', 'trk_dir_y', 'trk_dir_z', i, prefix='trk_')
         array['trk_pitch'+plane] = np.abs(get_pitch(array, 'trk_dir_y', 'trk_dir_z', i))
-    recalibrate(array)
-    add_dqdx_in_electrons(array)
+    if need_recalibration:
+        recalibrate(array)
+        add_dqdx_in_electrons(array)
     
 
 def initialisation_for_calorimetry_shower(array):

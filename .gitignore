@@ -1,13 +1,5 @@
 # Folders that are not relevant
-check_sce/*
-fiducial_volume_studies/*
-nueccinc/*
-numi_flash/*
-selection/*
-ShowerTrackFit/*
-statistics/*
-vertex_fitter/*
-calorimetry_likelihood/old/*
+dumped_objects/*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
