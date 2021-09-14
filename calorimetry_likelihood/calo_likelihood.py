@@ -7,7 +7,7 @@ from sklearn.metrics import roc_curve, auc
 from math import pi
 import pickle
 import awkward
-from calorimetry_likelihood.lib.initializers import pdgid2name
+from calorimetry_likelihood.hard_coded import pdgid2name
 
 class caloLikelihood(object):
     def __init__(self, array=None, quality_mask=None, quality_masks_planes=None):
@@ -672,14 +672,17 @@ class caloLikelihood(object):
         plt.tight_layout()
         return self.parameters_bin_edges[plane][::-1], table_reshaped
 
-    def plotVariableMC(self, var_name, bins, range, function_mask=None, quality_mask=True, label=None, cali_pars=None, **kwargs):
+    def plotVariableMC(self, var_name, bins, range, function_mask=None, kwargs_function_mask=None, quality_mask=True, label=None, cali_pars=None, **kwargs):
         if cali_pars is not None:
             assert 'dedx' in var_name
             assert hasattr(self, 'calibration_function')
         var_values = self.array[var_name]
         mask = (var_values == var_values)
         if function_mask is not None:
-            mask = mask & function_mask(self.array)
+            if kwargs_function_mask is not None:
+                mask = mask & function_mask(self.array, **kwargs_function_mask)
+            else:
+                mask = mask & function_mask(self.array)
         if quality_mask:
             mask = mask & self.quality_mask
 
@@ -696,8 +699,8 @@ class caloLikelihood(object):
         plt.ylabel('Probability density')
         return bin_contents
 
-    def plotVariableMCFancy(self, var_name, bins, range, function_mask=None, quality_mask=True, label=None, add_to_title=None, cali_pars=None, **kwargs):
-        bin_contents = self.plotVariableMC(var_name, bins, range, function_mask, quality_mask, label, cali_pars, **kwargs)
+    def plotVariableMCFancy(self, var_name, bins, range, function_mask=None, kwargs_function_mask=None, quality_mask=True, label=None, add_to_title=None, cali_pars=None, **kwargs):
+        bin_contents = self.plotVariableMC(var_name, bins, range, function_mask, kwargs_function_mask, quality_mask, label, cali_pars, **kwargs)
         title = r'BNB $\nu$ + overlay'
         if add_to_title is not None:
             title += add_to_title
@@ -812,7 +815,7 @@ class caloLikelihood(object):
 
         for parameters_edges in product(*parameters_bin_edges_bin_by_bin):
             additional_selection_mask = selection_function(self.array, parameters_names, parameters_edges)
-            auc_values.append(self.rocCurve(variable, pdg_codes, quality_mask=quality_mask, additional_selection_mask=additional_selection_mask))
+            auc_values.append(self.rocCurve(variable, pdg_codes, quality_mask=quality_mask, additional_selection_mask=additional_selection_mask)[0])
 
         n_bins = (len(parameters_bin_edges[0])-1, len(parameters_bin_edges[1])-1)
         auc_2d = np.array(auc_values).reshape(n_bins).T

@@ -3,7 +3,7 @@ from scipy.interpolate import interpn
 
 import uproot
 import awkward
-from calorimetry_likelihood.lib.calo_likelihood import caloLikelihood
+from calorimetry_likelihood.calo_likelihood import caloLikelihood
 
 detector_x = [-1.55, 254.8]
 detector_y = [-115.53, 117.47]
@@ -280,14 +280,8 @@ def selection_for_test(array):
            (array['trk_daughters']==0) &\
            (array['shr_daughters']==0)
 
-def muon_for_test(array):
-    return selection_for_test(array) & (np.abs(array['backtracked_pdg'])==13)
-
-def proton_for_test(array):
-    return selection_for_test(array) & (np.abs(array['backtracked_pdg'])==2212)
-
-def cosmic_for_test(array):
-    return selection_for_test(array) & (np.abs(array['backtracked_pdg'])==0)
+def particle_for_test(array, pdgid):
+    return selection_for_test(array) & (np.abs(array['backtracked_pdg'])==pdgid)
 
 def selection_planes(array):
     aux = []

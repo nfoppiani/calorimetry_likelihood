@@ -1,15 +1,5 @@
-from calorimetry_likelihood.lib.general_functions import *
-
-pdgid2name = {
-    11: 'electron',
-    22: 'photon',
-    2212: 'proton',
-    211: 'pion',
-    13: 'muon',
-    321: 'kaon',
-    2112: 'neutron',
-    0: 'cosmic',
-}
+from calorimetry_likelihood.general_functions import *
+from calorimetry_likelihood.hard_coded import pdgid2name
 
 def add_pdg_categories(array):
     for pdgid, name in pdgid2name.items():
